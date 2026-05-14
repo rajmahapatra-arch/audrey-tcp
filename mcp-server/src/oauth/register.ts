@@ -62,7 +62,13 @@ export function registerDCREndpoint(app: FastifyInstance): void {
       };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      request.log?.error({ err: msg }, 'DCR failure');
+      // Fastify is initialised with logger:false, so request.log is
+      // undefined. Use console.error so the message reaches stderr →
+      // Railway deploy logs.
+      console.error('[audrey-oauth] DCR failure:', msg);
+      if (err instanceof Error && err.stack) {
+        console.error(err.stack);
+      }
       reply.code(500);
       return {
         error: 'server_error',

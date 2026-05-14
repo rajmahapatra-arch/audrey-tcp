@@ -172,6 +172,25 @@ app.get('/health', async () => ({
   timestamp: new Date().toISOString(),
 }));
 
+// TEMPORARY diagnostic — reports which env vars are configured.
+// NEVER leaks values, only presence. Remove after OAuth is verified.
+app.get('/_debug/env', async () => {
+  const probe = (name: string) => {
+    const v = process.env[name];
+    return v ? { set: true, length: v.length, startsWith: v.slice(0, 4) } : { set: false };
+  };
+  return {
+    SUPABASE_URL: probe('SUPABASE_URL'),
+    SUPABASE_ANON_KEY: probe('SUPABASE_ANON_KEY'),
+    SUPABASE_SERVICE_ROLE_KEY: probe('SUPABASE_SERVICE_ROLE_KEY'),
+    AUDREY_JWT_PRIVATE_KEY: probe('AUDREY_JWT_PRIVATE_KEY'),
+    AUDREY_STATE_SECRET: probe('AUDREY_STATE_SECRET'),
+    AUDREY_BASE_URL: probe('AUDREY_BASE_URL'),
+    NODE_ENV: process.env.NODE_ENV ?? '(unset)',
+    RAILWAY_PUBLIC_DOMAIN: process.env.RAILWAY_PUBLIC_DOMAIN ?? '(unset)',
+  };
+});
+
 // Root — informational
 app.get('/', async () => ({
   service: 'audrey-tcp-mcp',
