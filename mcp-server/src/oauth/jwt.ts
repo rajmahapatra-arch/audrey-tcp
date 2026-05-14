@@ -26,19 +26,27 @@
 import {
   SignJWT,
   jwtVerify,
-  importPKCS8,
-  importSPKI,
   generateKeyPair,
-  exportSPKI,
   exportPKCS8,
   type JWTPayload,
 } from 'jose';
+import {
+  createPrivateKey,
+  createPublicKey,
+  type KeyObject,
+} from 'node:crypto';
 
 const ALG = 'RS256';
 
-// jose's key type varies across versions and runtimes (CryptoKey in
-// Web Crypto, KeyObject in Node). We just infer it from importPKCS8.
-type SigningKey = Awaited<ReturnType<typeof importPKCS8>>;
+// jose accepts both Web Crypto CryptoKey AND Node's KeyObject. We use
+// KeyObject (via node:crypto) because:
+//   - It does not have the extractable/non-extractable distinction
+//     that Web Crypto enforces (which trips up exportSPKI in some
+//     Node 22+ runtimes — observed on node:22-alpine).
+//   - createPublicKey() can derive the public key from a private key
+//     without any flags needed.
+//   - PEM I/O is robust.
+type SigningKey = KeyObject;
 
 let signingKeyPromise: Promise<SigningKey> | null = null;
 let verificationKeyPromise: Promise<SigningKey> | null = null;
@@ -51,13 +59,12 @@ async function loadKeys(): Promise<{ priv: SigningKey; pub: SigningKey; pubPem: 
     // Railway stores secrets without literal newlines; users sometimes
     // paste keys with escaped \n. Normalise both forms.
     const normalised = pem.replace(/\\n/g, '\n');
-    // extractable:true is required so we can call exportSPKI() to
-    // derive the public key. Node's Web Crypto enforces this strictly
-    // on 22+; without it, the key works for signing but can't be
-    // converted to JWK or PEM for the /.well-known/jwks.json endpoint.
-    const priv = await importPKCS8(normalised, ALG, { extractable: true });
-    const pubPem = await exportSPKI(priv as any);
-    const pub = await importSPKI(pubPem, ALG);
+    // Node's native crypto handles PEM directly with no extractable
+    // gotchas. The resulting KeyObject is accepted by jose for both
+    // signing (SignJWT.sign) and verification (jwtVerify).
+    const priv = createPrivateKey(normalised);
+    const pub = createPublicKey(priv);
+    const pubPem = pub.export({ type: 'spki', format: 'pem' }) as string;
     return { priv, pub, pubPem };
   }
 
@@ -74,9 +81,15 @@ async function loadKeys(): Promise<{ priv: SigningKey; pub: SigningKey; pubPem: 
     '[audrey-jwt] No AUDREY_JWT_PRIVATE_KEY set — generating EPHEMERAL keypair. ' +
       'Tokens valid only until process restart. DEV ONLY.'
   );
-  const { privateKey, publicKey } = await generateKeyPair(ALG, { modulusLength: 2048 });
-  const pubPem = await exportSPKI(publicKey);
-  return { priv: privateKey, pub: publicKey, pubPem };
+  // For dev fallback we use jose's generateKeyPair, then convert the
+  // resulting CryptoKey to a Node KeyObject via PEM round-trip so the
+  // rest of the code sees a consistent type.
+  const { privateKey } = await generateKeyPair(ALG, { modulusLength: 2048, extractable: true });
+  const privPem = await exportPKCS8(privateKey);
+  const priv = createPrivateKey(privPem);
+  const pub = createPublicKey(priv);
+  const pubPem = pub.export({ type: 'spki', format: 'pem' }) as string;
+  return { priv, pub, pubPem };
 }
 
 async function getSigningKey(): Promise<SigningKey> {
