@@ -16,6 +16,7 @@
 
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
+import formbody from '@fastify/formbody';
 import { Server as McpServer } from '@modelcontextprotocol/sdk/server/index.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
@@ -30,6 +31,10 @@ import {
 import { isSupabaseConfigured } from './db/supabase.js';
 import { auditAsync } from './audit.js';
 import { resolveFirmId } from './auth.js';
+import { registerMetadataRoutes } from './oauth/metadata.js';
+import { registerDCREndpoint } from './oauth/register.js';
+import { registerAuthorizeEndpoint } from './oauth/authorize.js';
+import { registerTokenEndpoint } from './oauth/token.js';
 import { AsyncLocalStorage } from 'node:async_hooks';
 
 const logger = pino({
@@ -146,6 +151,18 @@ await app.register(cors, {
   origin: true,
   credentials: true,
 });
+
+// Form-encoded body parsing for OAuth endpoints (RFC 6749 requires
+// application/x-www-form-urlencoded on /token).
+await app.register(formbody);
+
+// ============================================================
+// OAuth 2.0 endpoints (RFC 6749 + 7591 + 7636 + 8414 + 9728)
+// ============================================================
+registerMetadataRoutes(app);
+registerDCREndpoint(app);
+registerAuthorizeEndpoint(app);
+registerTokenEndpoint(app);
 
 // Health endpoint for Railway
 app.get('/health', async () => ({
