@@ -196,7 +196,7 @@ async function main() {
     if (createErr) {
       // 422 = email already exists. If --reuse-user, look up the
       // existing user and update their app_metadata. Otherwise fail.
-      if (/already.exists|already_registered|duplicate/i.test(createErr.message)) {
+      if (/already\s+(?:been\s+)?(?:registered|exists)|duplicate|email\s+address.*registered/i.test(createErr.message)) {
         if (!args.reuseUser) {
           console.error(
             `Error: user ${args.email} already exists in Supabase Auth. ` +
