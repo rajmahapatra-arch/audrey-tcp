@@ -22,6 +22,15 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprot
 import pino from 'pino';
 
 import { getMatterTool, handleGetMatter } from './tools/getMatter.js';
+import { listMattersTool, handleListMatters } from './tools/listMatters.js';
+import {
+  getCounterpartyHistoryTool,
+  handleGetCounterpartyHistory,
+} from './tools/getCounterpartyHistory.js';
+import { isSupabaseConfigured } from './db/supabase.js';
+import { auditAsync } from './audit.js';
+import { resolveFirmId } from './auth.js';
+import { AsyncLocalStorage } from 'node:async_hooks';
 
 const logger = pino({
   level: process.env.LOG_LEVEL ?? 'info',
@@ -50,22 +59,80 @@ const mcp = new McpServer(
 
 // Register tools — list and dispatch
 mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
-  tools: [getMatterTool],
+  tools: [getMatterTool, listMattersTool, getCounterpartyHistoryTool],
 }));
+
+// Per-request context store. We can't pass `request` through the MCP
+// SDK's CallTool dispatcher cleanly, so we capture the Authorization
+// header in the Fastify route and read it back here via ALS.
+const requestContext = new AsyncLocalStorage<{ bearerToken?: string }>();
 
 mcp.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
-  logger.info({ tool: name, args }, 'tool call');
+  const requestId = crypto.randomUUID();
+  logger.info({ tool: name, args, requestId }, 'tool call');
 
-  // TODO Stage A: extract authenticated user's firm_id from request context
-  // For now, stub firm_id is hardcoded for development
-  const firmId = 'stub-firm-id';
+  // Resolve firmId from bearer token (validated via Supabase Auth) or
+  // env-var fallback. Throws if neither is available in production.
+  const ctx = requestContext.getStore();
+  let firmId: string;
+  let userId: string | null = null;
+  try {
+    const auth = await resolveFirmId({
+      source: 'http',
+      bearerToken: ctx?.bearerToken,
+    });
+    firmId = auth.firmId;
+    userId = auth.userId;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.warn({ requestId, error: msg }, 'auth failed');
+    throw err; // transport translates to error response
+  }
 
-  switch (name) {
-    case 'get_matter':
-      return handleGetMatter(args, firmId);
-    default:
-      throw new Error(`Unknown tool: ${name}`);
+  try {
+    let result;
+    switch (name) {
+      case 'get_matter':
+        result = await handleGetMatter(args, firmId);
+        break;
+      case 'list_matters':
+        result = await handleListMatters(args, firmId);
+        break;
+      case 'get_counterparty_history':
+        result = await handleGetCounterpartyHistory(args, firmId);
+        break;
+      default:
+        auditAsync({
+          firmId,
+          action: `tool.${name}`,
+          result: 'error',
+          requestId,
+          payload: { error: 'unknown_tool', args },
+        });
+        throw new Error(`Unknown tool: ${name}`);
+    }
+
+    auditAsync({
+      firmId,
+      userId,
+      action: `tool.${name}`,
+      result: 'success',
+      requestId,
+      payload: { args },
+    });
+    return result;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    auditAsync({
+      firmId,
+      userId,
+      action: `tool.${name}`,
+      result: 'error',
+      requestId,
+      payload: { args, error: msg },
+    });
+    throw err;
   }
 });
 
@@ -102,12 +169,24 @@ const transport = new StreamableHTTPServerTransport({
 
 await mcp.connect(transport);
 
+function extractBearer(authHeader: unknown): string | undefined {
+  if (typeof authHeader !== 'string') return undefined;
+  const match = /^Bearer\s+(.+)$/i.exec(authHeader);
+  return match?.[1];
+}
+
 app.post('/mcp', async (request, reply) => {
-  await transport.handleRequest(request.raw, reply.raw, request.body);
+  const bearerToken = extractBearer(request.headers.authorization);
+  await requestContext.run({ bearerToken }, async () => {
+    await transport.handleRequest(request.raw, reply.raw, request.body);
+  });
 });
 
 app.get('/mcp', async (request, reply) => {
-  await transport.handleRequest(request.raw, reply.raw);
+  const bearerToken = extractBearer(request.headers.authorization);
+  await requestContext.run({ bearerToken }, async () => {
+    await transport.handleRequest(request.raw, reply.raw);
+  });
 });
 
 // ============================================================
@@ -117,6 +196,14 @@ app.get('/mcp', async (request, reply) => {
 try {
   await app.listen({ port: PORT, host: '0.0.0.0' });
   logger.info(`Audrey MCP server listening on :${PORT}`);
+  if (!isSupabaseConfigured()) {
+    logger.warn(
+      'SUPABASE_URL / SUPABASE_ANON_KEY not set — running in STUB mode. ' +
+        'Repositories will return hardcoded fixtures. Set env vars in .env to read real data.'
+    );
+  } else {
+    logger.info('Supabase configured — repositories will read live data.');
+  }
 } catch (err) {
   logger.error(err, 'failed to start server');
   process.exit(1);
