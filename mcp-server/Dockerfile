@@ -1,7 +1,7 @@
 # Audrey TCP MCP server
 # Multi-stage build: compile TypeScript, then run a minimal image.
 
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 WORKDIR /app
 
 # Install dependencies first for better cache hits
@@ -15,7 +15,7 @@ RUN npm run build
 
 # ---
 
-FROM node:20-alpine AS runtime
+FROM node:22-alpine AS runtime
 WORKDIR /app
 
 # Production-only deps
