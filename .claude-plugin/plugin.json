@@ -1,0 +1,32 @@
+{
+  "name": "audrey-tcp",
+  "displayName": "Audrey — Matter Context",
+  "version": "0.1.0",
+  "description": "Per-matter, per-counterparty, per-client intelligence for legal work in Claude. Brings the deal, the counterparty's history, and the client's settled positions into every conversation.",
+  "homepage": "https://app.audrey.xeqtor.com",
+  "repository": "https://github.com/rajmahapatra-arch/audrey-tcp",
+  "license": "Apache-2.0",
+  "author": {
+    "name": "Xeqtor",
+    "email": "hello@xeqtor.com"
+  },
+  "keywords": [
+    "legal",
+    "matter-management",
+    "negotiation",
+    "contract-review",
+    "audrey"
+  ],
+  "categories": [
+    "legal"
+  ],
+  "tags": [
+    "claude-for-legal",
+    "matter-context"
+  ],
+  "compatibleWith": {
+    "claude-code": ">=1.0.0",
+    "claude-microsoft-365": ">=1.0.0",
+    "cowork": ">=1.0.0"
+  }
+}

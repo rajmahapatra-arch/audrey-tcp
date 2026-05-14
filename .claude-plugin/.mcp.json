@@ -1,0 +1,20 @@
+{
+  "mcpServers": {
+    "audrey": {
+      "url": "https://mcp.audrey.xeqtor.com",
+      "transport": "http",
+      "description": "Audrey TCP MCP server. Exposes matter, counterparty, client, and position intelligence tools. Requires OAuth via Supabase.",
+      "auth": {
+        "type": "oauth",
+        "authorizationUrl": "https://app.audrey.xeqtor.com/auth/authorize",
+        "tokenUrl": "https://app.audrey.xeqtor.com/auth/token",
+        "scopes": [
+          "matter:read",
+          "matter:write",
+          "counterparty:read",
+          "client:read"
+        ]
+      }
+    }
+  }
+}
