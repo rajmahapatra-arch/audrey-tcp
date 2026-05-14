@@ -14,7 +14,7 @@
  *     server appears.
  */
 
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { oauthRepository } from '../repositories/oauth.js';
@@ -32,8 +32,30 @@ const TokenRequest = z.object({
 
 export function registerTokenEndpoint(app: FastifyInstance): void {
   app.post('/token', async (request, reply) => {
+    try {
+      return await handleToken(request, reply);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error('[audrey-oauth] /token unhandled error:', msg);
+      if (err instanceof Error && err.stack) {
+        console.error(err.stack);
+      }
+      reply.code(500);
+      return {
+        error: 'server_error',
+        error_description: 'Internal error during token exchange',
+      };
+    }
+  });
+}
+
+async function handleToken(request: FastifyRequest, reply: FastifyReply) {
+    // Log what we received (useful for debugging Claude.ai's exact request shape)
+    console.error('[audrey-oauth] /token request body:', JSON.stringify(request.body));
+
     const parsed = TokenRequest.safeParse(request.body);
     if (!parsed.success) {
+      console.error('[audrey-oauth] /token invalid_request:', parsed.error.message);
       reply.code(400);
       return {
         error: 'invalid_request',
@@ -122,7 +144,6 @@ export function registerTokenEndpoint(app: FastifyInstance): void {
       expires_in: expiresIn,
       scope: redeemed.scope,
     };
-  });
 }
 
 function verifyPkce(
