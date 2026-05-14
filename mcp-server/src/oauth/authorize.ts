@@ -273,11 +273,25 @@ export function registerAuthorizeEndpoint(app: FastifyInstance): void {
       options: { redirectTo: callbackUrl },
     });
 
+    // Loud logging so we can debug delivery issues. console.error goes
+    // to stderr → Railway deploy logs. Includes the action_link so we
+    // can manually click it if SMTP is broken.
+    console.error(
+      '[audrey-oauth] generateLink result:',
+      JSON.stringify({
+        email,
+        ok: !linkErr,
+        error: linkErr?.message ?? null,
+        action_link: linkData?.properties?.action_link ?? null,
+        hashed_token_present: Boolean(linkData?.properties?.hashed_token),
+      })
+    );
+
     // We deliberately DON'T leak whether the email exists. Same response
     // for "user provisioned, link sent" and "user not provisioned".
     // Generate-link errors that aren't "user not found" still bubble.
     if (linkErr && !/not.found|not_found|does not exist/i.test(linkErr.message)) {
-      request.log?.error({ err: linkErr.message }, 'magic link generation failed');
+      console.error('[audrey-oauth] magic link generation failed:', linkErr.message);
       reply.code(500).type('text/html');
       return htmlPage(
         'Error',
