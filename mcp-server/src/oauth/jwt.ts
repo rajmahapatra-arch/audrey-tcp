@@ -51,8 +51,11 @@ async function loadKeys(): Promise<{ priv: SigningKey; pub: SigningKey; pubPem: 
     // Railway stores secrets without literal newlines; users sometimes
     // paste keys with escaped \n. Normalise both forms.
     const normalised = pem.replace(/\\n/g, '\n');
-    const priv = await importPKCS8(normalised, ALG);
-    // Derive public key from private (jose KeyLike has both).
+    // extractable:true is required so we can call exportSPKI() to
+    // derive the public key. Node's Web Crypto enforces this strictly
+    // on 22+; without it, the key works for signing but can't be
+    // converted to JWK or PEM for the /.well-known/jwks.json endpoint.
+    const priv = await importPKCS8(normalised, ALG, { extractable: true });
     const pubPem = await exportSPKI(priv as any);
     const pub = await importSPKI(pubPem, ALG);
     return { priv, pub, pubPem };
