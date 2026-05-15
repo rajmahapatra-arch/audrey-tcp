@@ -37,6 +37,10 @@ export interface Matter {
   id: string;
   firmId: string;
   clientId: string;
+  /** Free-text matter name (e.g. "Acme MSA negotiation"). Optional because legacy rows may not have one. */
+  matterName: string | null;
+  /** Flat client name for display when client_id alone is unhelpful. */
+  clientName: string | null;
   matterType: string;
   stage: MatterStage;
   privilegeScope: PrivilegeScope;
