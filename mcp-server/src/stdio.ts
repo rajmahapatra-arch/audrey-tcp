@@ -27,6 +27,22 @@ import {
   getMatterByDocumentTool,
   handleGetMatterByDocument,
 } from './tools/getMatterByDocument.js';
+import {
+  getOpenPositionsTool,
+  handleGetOpenPositions,
+  getSettledPositionsTool,
+  handleGetSettledPositions,
+  getPositionHistoryTool,
+  handleGetPositionHistory,
+  addPositionTool,
+  handleAddPosition,
+} from './tools/positionTools.js';
+import {
+  audreyCheckDraftTool,
+  handleAudreyCheckDraft,
+  searchMatterTextTool,
+  handleSearchMatterText,
+} from './tools/extractionTools.js';
 import { isSupabaseConfigured } from './db/supabase.js';
 import { auditAsync } from './audit.js';
 import { resolveFirmId } from './auth.js';
@@ -57,6 +73,12 @@ mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
     getMatterTool,
     listMattersTool,
     getCounterpartyHistoryTool,
+    getOpenPositionsTool,
+    getSettledPositionsTool,
+    getPositionHistoryTool,
+    addPositionTool,
+    audreyCheckDraftTool,
+    searchMatterTextTool,
   ],
 }));
 
@@ -85,6 +107,24 @@ mcp.setRequestHandler(CallToolRequestSchema, async (request) => {
         break;
       case 'get_matter_by_document':
         result = await handleGetMatterByDocument(args, firmId);
+        break;
+      case 'get_open_positions':
+        result = await handleGetOpenPositions(args, firmId);
+        break;
+      case 'get_settled_positions':
+        result = await handleGetSettledPositions(args, firmId);
+        break;
+      case 'get_position_history':
+        result = await handleGetPositionHistory(args, firmId);
+        break;
+      case 'add_position':
+        result = await handleAddPosition(args, firmId, userId);
+        break;
+      case 'audrey_check_draft':
+        result = await handleAudreyCheckDraft(args, firmId);
+        break;
+      case 'search_matter_text':
+        result = await handleSearchMatterText(args, firmId);
         break;
       default:
         auditAsync({

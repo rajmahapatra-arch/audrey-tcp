@@ -14,6 +14,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint src/**/*.ts",
     "onboard": "tsx scripts/onboard.ts",
+    "backfill": "tsx scripts/backfill-extraction.ts",
     "jwt:keygen": "tsx src/oauth/jwt.ts"
   },
   "dependencies": {
