@@ -321,11 +321,33 @@ function extractBearer(authHeader: unknown): string | undefined {
  * see is broken.
  */
 async function preflightBearer(
-  _request: FastifyRequest,
+  request: FastifyRequest,
   reply: FastifyReply,
   bearerToken: string | undefined
 ): Promise<boolean> {
-  if (!bearerToken) return true; // unauth requests proceed; transport handles auth-required methods
+  // Methods that legitimately don't require authentication:
+  //   - initialize: opens the MCP session
+  //   - notifications/initialized: client confirms it's ready
+  //   - tools/list: just publishes our public tool surface
+  // Any other method (tools/call etc.) requires a Bearer.
+  const body = request.body as { method?: string } | null;
+  const method = body?.method ?? '';
+  const isUnauthMethod =
+    method === 'initialize' ||
+    method === 'notifications/initialized' ||
+    method === 'tools/list';
+
+  if (!bearerToken) {
+    if (isUnauthMethod) return true;
+    // Authenticated method called without any Bearer token. Signal
+    // the client it needs to authenticate via OAuth.
+    send401(
+      reply,
+      'invalid_request',
+      'Authorization required: no Bearer token provided. Sign in via the auth flow.'
+    );
+    return false;
+  }
 
   const base = getBaseUrl();
   try {
