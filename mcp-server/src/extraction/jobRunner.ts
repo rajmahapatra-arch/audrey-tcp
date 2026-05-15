@@ -106,24 +106,39 @@ export async function runPendingJobs(opts?: {
   const results: JobResult[] = [];
 
   for (let i = 0; i < max; i++) {
-    // Claim the next pending job atomically — UPDATE … WHERE status='pending'
-    // RETURNING. Postgres makes this serializable; first writer wins.
-    const { data: claimed, error: claimErr } = await db
+    // Two-step claim: find next pending, then UPDATE by id with
+    // optimistic concurrency check on status. PostgREST doesn't
+    // support UPDATE ... ORDER BY ... LIMIT 1 RETURNING in one call;
+    // .limit() only restricts the returned rows, not the update.
+    const { data: pending, error: findErr } = await db
       .from('extraction_jobs')
-      .update({ status: 'running', started_at: new Date().toISOString() })
+      .select('id, firm_id, document_id, matter_id')
       .eq('status', 'pending')
       .order('queued_at', { ascending: true })
       .limit(1)
-      .select('*')
+      .maybeSingle();
+
+    if (findErr) {
+      console.error('[audrey-extract] find pending failed:', findErr.message);
+      break;
+    }
+    if (!pending) break; // queue empty
+
+    const { data: claimed, error: claimErr } = await db
+      .from('extraction_jobs')
+      .update({ status: 'running', started_at: new Date().toISOString() })
+      .eq('id', (pending as { id: string }).id)
+      .eq('status', 'pending') // race-safe: only claim if still pending
+      .select('id, firm_id, document_id, matter_id')
       .maybeSingle();
 
     if (claimErr) {
       console.error('[audrey-extract] job claim failed:', claimErr.message);
       break;
     }
-    if (!claimed) break; // no more pending jobs
+    if (!claimed) continue; // raced; try the next one
 
-    const result = await runOneJob(db, claimed);
+    const result = await runOneJob(db, claimed as JobRow);
     results.push(result);
   }
 
