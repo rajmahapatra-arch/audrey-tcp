@@ -18,7 +18,7 @@
  *     initialized" on the second initialize.
  */
 
-import Fastify from 'fastify';
+import Fastify, { type FastifyRequest, type FastifyReply } from 'fastify';
 import cors from '@fastify/cors';
 import formbody from '@fastify/formbody';
 import { Server as McpServer } from '@modelcontextprotocol/sdk/server/index.js';
@@ -26,7 +26,6 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
-  isInitializeRequest,
 } from '@modelcontextprotocol/sdk/types.js';
 import pino from 'pino';
 
@@ -156,10 +155,9 @@ function createMcpServer(): McpServer {
 }
 
 // ============================================================
-// Per-session transport registry
+// Stateless mode — see /mcp handler below for rationale.
+// (transports map removed; we create a fresh transport per request.)
 // ============================================================
-
-const transports: Record<string, StreamableHTTPServerTransport> = {};
 
 // ============================================================
 // HTTP server (Fastify)
@@ -194,7 +192,6 @@ app.get('/health', async () => ({
   service: 'audrey-mcp',
   version: '0.1.0',
   timestamp: new Date().toISOString(),
-  active_sessions: Object.keys(transports).length,
 }));
 
 // TEMPORARY — env-presence diagnostic. Remove after OAuth is verified.
@@ -212,7 +209,6 @@ app.get('/_debug/env', async () => {
     AUDREY_BASE_URL: probe('AUDREY_BASE_URL'),
     NODE_ENV: process.env.NODE_ENV ?? '(unset)',
     RAILWAY_PUBLIC_DOMAIN: process.env.RAILWAY_PUBLIC_DOMAIN ?? '(unset)',
-    active_mcp_sessions: Object.keys(transports).length,
   };
 });
 
@@ -232,90 +228,56 @@ function extractBearer(authHeader: unknown): string | undefined {
   return match?.[1];
 }
 
-function getSessionId(headers: Record<string, unknown>): string | undefined {
-  const v = headers['mcp-session-id'];
-  if (typeof v === 'string') return v;
-  if (Array.isArray(v) && typeof v[0] === 'string') return v[0];
-  return undefined;
-}
-
-app.post('/mcp', async (request, reply) => {
+/**
+ * Stateless /mcp handler.
+ *
+ * Why stateless rather than per-session: we don't use SSE streaming
+ * responses. Every tool call is a simple request-reply. Stateful
+ * session tracking was creating brittleness — clients that kept their
+ * session id but talked to a server instance that had forgotten it
+ * (idle timeout, restart, etc.) got 400'd. Claude for Word hit this
+ * after ~15 min idle.
+ *
+ * In stateless mode we create a fresh McpServer + transport per
+ * request. Slight per-request overhead, total robustness.
+ */
+async function handleMcpRequest(
+  request: FastifyRequest,
+  reply: FastifyReply
+): Promise<void> {
   const bearerToken = extractBearer(request.headers.authorization);
-  const sessionId = getSessionId(request.headers as Record<string, unknown>);
 
-  let transport: StreamableHTTPServerTransport;
+  // Log the request shape (very useful for debugging unfamiliar client behaviour)
+  const bodyMethod =
+    request.body && typeof request.body === 'object' && 'method' in request.body
+      ? (request.body as { method?: string }).method
+      : undefined;
+  console.error('[audrey-mcp]', request.method, '/mcp method:', bodyMethod ?? '(none)');
 
-  if (sessionId && transports[sessionId]) {
-    // Existing session
-    transport = transports[sessionId];
-  } else if (!sessionId && isInitializeRequest(request.body)) {
-    // New session: create fresh server + transport pair
-    transport = new StreamableHTTPServerTransport({
-      sessionIdGenerator: () => randomUUID(),
-      onsessioninitialized: (id) => {
-        transports[id] = transport;
-        logger.info({ sessionId: id }, 'mcp session opened');
-      },
-    });
-    transport.onclose = () => {
-      if (transport.sessionId) {
-        delete transports[transport.sessionId];
-        logger.info({ sessionId: transport.sessionId }, 'mcp session closed');
-      }
-    };
-
-    const mcp = createMcpServer();
-    await mcp.connect(transport);
-  } else {
-    reply.code(400);
-    return {
-      jsonrpc: '2.0',
-      error: {
-        code: -32000,
-        message: 'Bad Request: missing or invalid Mcp-Session-Id, or not an initialize request',
-      },
-      id: null,
-    };
-  }
+  const mcp = createMcpServer();
+  const transport = new StreamableHTTPServerTransport({
+    // undefined disables session tracking — each request stands alone.
+    sessionIdGenerator: undefined,
+  });
+  await mcp.connect(transport);
 
   await requestContext.run({ bearerToken }, async () => {
     await transport.handleRequest(request.raw, reply.raw, request.body);
   });
+}
+
+app.post('/mcp', async (request, reply) => {
+  await handleMcpRequest(request, reply);
   return reply;
 });
 
 app.get('/mcp', async (request, reply) => {
-  const bearerToken = extractBearer(request.headers.authorization);
-  const sessionId = getSessionId(request.headers as Record<string, unknown>);
-
-  if (!sessionId || !transports[sessionId]) {
-    reply.code(400);
-    return {
-      jsonrpc: '2.0',
-      error: {
-        code: -32000,
-        message: 'Bad Request: GET requires a valid Mcp-Session-Id from a prior initialize',
-      },
-      id: null,
-    };
-  }
-
-  const transport = transports[sessionId];
-  await requestContext.run({ bearerToken }, async () => {
-    await transport.handleRequest(request.raw, reply.raw);
-  });
+  await handleMcpRequest(request, reply);
   return reply;
 });
 
-// DELETE /mcp — graceful session teardown per spec
 app.delete('/mcp', async (request, reply) => {
-  const sessionId = getSessionId(request.headers as Record<string, unknown>);
-  if (!sessionId || !transports[sessionId]) {
-    reply.code(400);
-    return { error: 'no session' };
-  }
-  const transport = transports[sessionId];
-  await transport.handleRequest(request.raw, reply.raw);
+  await handleMcpRequest(request, reply);
   return reply;
 });
 
