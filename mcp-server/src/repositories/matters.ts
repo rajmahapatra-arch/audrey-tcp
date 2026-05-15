@@ -39,6 +39,8 @@ const STUB_MATTERS: Record<string, Matter> = {
     id: '00000000-0000-0000-0000-000000000001',
     firmId: 'stub-firm-id',
     clientId: 'stub-client-acme',
+    matterName: 'Acme MSA negotiation',
+    clientName: 'Acme Corp',
     matterType: 'msa',
     stage: 'in_negotiation',
     privilegeScope: 'privileged',
@@ -130,6 +132,8 @@ function toMatter(row: MatterRow): Matter {
     id: row.id,
     firmId: row.firm_id ?? '',
     clientId: row.client_id ?? '',
+    matterName: row.matter_name,
+    clientName: row.client_name,
     matterType: (row.deal_parameters?.matter_type as string) ?? 'other',
     stage: ((row.stage as MatterStage) ??
       (row.archived ? 'closed' : 'in_negotiation')) as MatterStage,

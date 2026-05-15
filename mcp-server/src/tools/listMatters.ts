@@ -67,7 +67,9 @@ const ListMattersInput = z.object({
 
 interface MatterSummary {
   id: string;
+  matter_name: string | null;
   client_id: string;
+  client_name: string | null;
   matter_type: string;
   stage: string;
   opened_at: string;
@@ -78,7 +80,9 @@ interface MatterSummary {
 function toSummary(m: Matter): MatterSummary {
   return {
     id: m.id,
+    matter_name: m.matterName,
     client_id: m.clientId,
+    client_name: m.clientName,
     matter_type: m.matterType,
     stage: m.stage,
     opened_at: m.openedAt,
