@@ -68,7 +68,9 @@ import {
 import { isSupabaseConfigured } from './db/supabase.js';
 import { auditAsync } from './audit.js';
 import { resolveFirmId } from './auth.js';
+import { verifyAccessToken } from './oauth/jwt.js';
 import { registerMetadataRoutes } from './oauth/metadata.js';
+import { getBaseUrl } from './oauth/metadata.js';
 import { registerDCREndpoint } from './oauth/register.js';
 import { registerAuthorizeEndpoint } from './oauth/authorize.js';
 import { registerTokenEndpoint } from './oauth/token.js';
@@ -303,6 +305,101 @@ function extractBearer(authHeader: unknown): string | undefined {
 }
 
 /**
+ * Pre-flight Bearer-token validation that returns proper HTTP 401 +
+ * WWW-Authenticate header when invalid. This is the OAuth 2.0
+ * Bearer-token error signalling Claude.ai's connector logic respects
+ * — without it, an invalid/expired token surfaces only as a JSON-RPC
+ * error inside HTTP 200, which Claude.ai mistakes for "tool failure"
+ * rather than "user needs to re-authenticate".
+ *
+ * Returns true when the request should proceed (no token, or token
+ * valid). Returns false when 401 was sent and the caller should stop.
+ *
+ * We do NOT block requests without a bearer token here — that's
+ * tools-list and initialize semantics which the MCP transport handles
+ * itself. We block only when there's a bearer that the server can
+ * see is broken.
+ */
+async function preflightBearer(
+  _request: FastifyRequest,
+  reply: FastifyReply,
+  bearerToken: string | undefined
+): Promise<boolean> {
+  if (!bearerToken) return true; // unauth requests proceed; transport handles auth-required methods
+
+  const base = getBaseUrl();
+  try {
+    const claims = await verifyAccessToken(bearerToken, `${base}/mcp`, base);
+
+    // Revocation check (mirrors auth.ts logic — done here so 401 fires
+    // at HTTP layer before tool dispatch)
+    const minIatRow = await fetchMinTokenIat(claims.sub, claims.firm_id);
+    if (
+      minIatRow &&
+      claims.iat !== undefined &&
+      new Date(claims.iat * 1000) < minIatRow
+    ) {
+      send401(reply, 'invalid_token', 'Token has been revoked. Please sign in again.');
+      return false;
+    }
+    return true;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    send401(reply, 'invalid_token', msg);
+    return false;
+  }
+}
+
+/**
+ * Sends an RFC 6750-compliant 401 with WWW-Authenticate Bearer
+ * challenge. The realm + auth-server URL guide the client to the
+ * right place to re-authenticate.
+ */
+function send401(reply: FastifyReply, error: string, errorDescription: string): void {
+  const base = getBaseUrl();
+  const desc = errorDescription.replace(/"/g, '').slice(0, 200);
+  reply.code(401);
+  reply.header(
+    'WWW-Authenticate',
+    `Bearer realm="audrey", error="${error}", error_description="${desc}", ` +
+      `resource_metadata="${base}/.well-known/oauth-protected-resource"`
+  );
+  reply.type('application/json');
+  void reply.send({
+    jsonrpc: '2.0',
+    error: {
+      code: -32001,
+      message: errorDescription,
+    },
+    id: null,
+  });
+}
+
+// Minimal direct DB lookup for the preflight revocation check.
+// We can't import from auth.ts (would create a circular dep with
+// resolveFirmId), so duplicate the small piece we need.
+let preflightDb: import('@supabase/supabase-js').SupabaseClient | null | undefined;
+async function fetchMinTokenIat(userId: string, firmId: string): Promise<Date | null> {
+  if (preflightDb === undefined) {
+    const { createClient } = await import('@supabase/supabase-js');
+    const url = process.env.SUPABASE_URL;
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    preflightDb = url && key ? createClient(url, key, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    }) : null;
+  }
+  if (!preflightDb) return null;
+  const { data } = await preflightDb
+    .from('firm_users')
+    .select('min_token_iat')
+    .eq('user_id', userId)
+    .eq('firm_id', firmId)
+    .maybeSingle();
+  const v = (data as { min_token_iat?: string | null } | null)?.min_token_iat;
+  return v ? new Date(v) : null;
+}
+
+/**
  * Stateless /mcp handler.
  *
  * Why stateless rather than per-session: we don't use SSE streaming
@@ -327,6 +424,17 @@ async function handleMcpRequest(
       ? (request.body as { method?: string }).method
       : undefined;
   console.error('[audrey-mcp]', request.method, '/mcp method:', bodyMethod ?? '(none)');
+
+  // Pre-flight: if a Bearer token is present and invalid (expired,
+  // revoked, etc.), return 401 here at the HTTP layer rather than
+  // letting it surface as a JSON-RPC error inside HTTP 200. The 401
+  // + WWW-Authenticate header is what tells OAuth clients (like
+  // Claude.ai's connector) to trigger a fresh sign-in.
+  const proceed = await preflightBearer(request, reply, bearerToken);
+  if (!proceed) {
+    console.error('[audrey-mcp] preflight: 401 sent for invalid bearer');
+    return;
+  }
 
   const mcp = createMcpServer();
   const transport = new StreamableHTTPServerTransport({
