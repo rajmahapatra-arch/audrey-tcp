@@ -22,11 +22,15 @@ import { counterpartiesRepository } from '../repositories/counterparties.js';
 
 export const getCounterpartyHistoryTool: Tool = {
   name: 'get_counterparty_history',
-  description:
-    'Return everything the firm has observed about a counterparty across all matters: their ' +
-    'positions on each clause type, with matter IDs cited. Use this when the user asks ' +
-    '"what does X typically push on?", "have we negotiated with X before?", or before ' +
-    'replying to a counterparty draft so you can compare their current ask against history.',
+  description: [
+    "Audrey's cross-matter intelligence on a counterparty: every position they've taken",
+    'on each clause type, citing the matters where it appeared. This is the wedge tool',
+    'lawyers want most. Call this WHENEVER the user is reviewing a counterparty draft,',
+    'replying to their markup, or asking what to expect — e.g. "what does Behemoth',
+    'typically push on liability caps?", "have we negotiated with KBR before?", "what',
+    'positions has ACT accepted on IP indemnity?". Pass the counterparty name',
+    '(case-insensitive partial match supported) and optionally a clause_type filter.',
+  ].join(' '),
   inputSchema: {
     type: 'object',
     properties: {
