@@ -6,9 +6,20 @@
  * for schema and the "why" rationale.
  *
  * Compliance posture:
- *   - Append-only enforced at role level (audit_writer role has INSERT
- *     only — UPDATE/DELETE revoked). Stage A uses the anon role; Stage
- *     B switches to the dedicated audit_writer role.
+ *   - Append-only enforced at role level (audit_writer role with
+ *     INSERT only, UPDATE/DELETE revoked). Stage B creates that
+ *     dedicated role; Stage A uses the service-role key to bypass
+ *     audit_log's RLS — the safety property we care about today is
+ *     "audit writes always succeed", not "the writer role itself is
+ *     constrained to INSERT".
+ *
+ *   - Why NOT the anon client: audit_log has an RLS insert policy
+ *     that requires `current_setting('audrey.firm_id')` to match the
+ *     row's firm_id. We don't set that variable per-request (it
+ *     requires either a custom RPC or a connection-per-request
+ *     pattern). Service-role bypasses RLS entirely, which is the
+ *     correct behaviour for a privileged auditor.
+ *
  *   - Retention: minimum 12 months (per migration COMMENT). Cleanup
  *     policy reviewed in Stage C compliance pass.
  *
@@ -18,10 +29,10 @@
  *     (we'll catch it via monitoring), but failing the user's tool
  *     call because we couldn't log is worse.
  *   - When Supabase isn't configured (stub mode), all writes are
- *     no-ops. That's expected for local development.
+ *     no-ops with a [audrey-audit:stub] log line.
  */
 
-import { getSupabase, isSupabaseConfigured } from './db/supabase.js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 export type AuditResult = 'success' | 'denied' | 'error';
 
@@ -38,6 +49,30 @@ export interface AuditEntry {
   payload?: Record<string, unknown> | null;
 }
 
+// ============================================================
+// Service-role audit client (singleton, lazy)
+// ============================================================
+
+let serviceClient: SupabaseClient | null | undefined;
+
+function getAuditClient(): SupabaseClient | null {
+  if (serviceClient !== undefined) return serviceClient;
+
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!url || !key) {
+    // Stub mode — caller logs the [audrey-audit:stub] line instead.
+    serviceClient = null;
+    return null;
+  }
+
+  serviceClient = createClient(url, key, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  return serviceClient;
+}
+
 /**
  * Write an audit entry. Never throws — failures land on stderr.
  *
@@ -47,15 +82,13 @@ export interface AuditEntry {
  * still await it.
  */
 export async function writeAudit(entry: AuditEntry): Promise<void> {
-  if (!isSupabaseConfigured()) {
+  const supabase = getAuditClient();
+  if (!supabase) {
     // Stub mode — log to stderr so devs can see the audit trail they
     // would have written, then no-op.
     console.error('[audrey-audit:stub]', JSON.stringify(entry));
     return;
   }
-
-  const supabase = getSupabase();
-  if (!supabase) return;
 
   try {
     const { error } = await supabase.from('audit_log').insert({
@@ -72,8 +105,6 @@ export async function writeAudit(entry: AuditEntry): Promise<void> {
     });
 
     if (error) {
-      // Could be: RLS denial, table doesn't exist (migration not
-      // applied), connection failure. All non-fatal for the tool call.
       console.error(
         '[audrey-audit] write failed:',
         error.message,
