@@ -134,7 +134,13 @@ export interface AccessTokenClaims extends JWTPayload {
   client_id: string;
 }
 
-const ACCESS_TOKEN_TTL_SECONDS = 60 * 60; // 1 hour
+// 7 days. We don't issue refresh tokens (Stage A), so this TTL is
+// the maximum time between user re-auths. Short TTLs (1h) created a
+// genuinely bad demo experience — mid-flow re-auths during real
+// lawyer sessions. 7 days balances "long enough nobody hits re-auth
+// in a working day" against "short enough that a stolen token isn't
+// useful indefinitely". Refresh tokens land in Stage C.
+const ACCESS_TOKEN_TTL_SECONDS = 60 * 60 * 24 * 7;
 
 /**
  * Mint an access token. `audience` should be this server's MCP URL
