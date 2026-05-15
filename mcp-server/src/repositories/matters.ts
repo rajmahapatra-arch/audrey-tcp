@@ -7,13 +7,18 @@
  *   - All methods take firmId as their first parameter so the routing
  *     layer (shared vs dedicated instance) can dispatch correctly.
  *
- * Stage A (now):
- *   - If Supabase is configured: read from `matters` table, RLS-scoped.
- *   - If Supabase is NOT configured: fall back to STUB_MATTERS so the
- *     Day-1 spike still works locally without creds.
+ * Schema notes:
+ *   The existing Audrey backend's `matters` table predates Audrey TCP's
+ *   firm-keyed multi-tenancy. Migration 006 added `firm_id`, `stage`,
+ *   `privilege_scope` and backfilled them from `firm_users`. The
+ *   columns we now read from `matters` are:
  *
- * Stage post-C: dedicated-instance support added here (one switch on
- *               tenant config), tool handlers unchanged.
+ *     id (uuid), user_id (uuid), firm_id (uuid, added in 006),
+ *     client_id (uuid), client_name (text), matter_name (text),
+ *     governing_law (text), parties (jsonb), deal_parameters (jsonb),
+ *     context (jsonb), created_at (timestamptz), last_accessed (timestamptz),
+ *     archived (boolean), stage (text, added in 006),
+ *     privilege_scope (text, added in 006)
  */
 
 import { getSupabase, isSupabaseConfigured } from '../db/supabase.js';
@@ -72,42 +77,77 @@ const STUB_MATTERS: Record<string, Matter> = {
 // Row → domain mappers
 // ============================================================
 
-/**
- * The existing Audrey backend stores matters with snake_case columns.
- * This mapper is the single point where we translate to the camelCase
- * domain type. Keeping it isolated means schema drift hits one place.
- */
 interface MatterRow {
   id: string;
-  firm_id: string;
+  firm_id: string | null;
+  user_id: string | null;
   client_id: string | null;
-  matter_type: string | null;
+  client_name: string | null;
+  matter_name: string | null;
+  governing_law: string | null;
+  parties: unknown;
+  deal_parameters: Record<string, unknown> | null;
+  context: Record<string, unknown> | null;
+  created_at: string | null;
+  last_accessed: string | null;
+  archived: boolean | null;
   stage: string | null;
   privilege_scope: string | null;
-  opened_at: string | null;
-  closed_at: string | null;
-  parties: MatterParty[] | null;
-  state: Record<string, unknown> | null;
+}
+
+/** Normalise the jsonb `parties` column to MatterParty[] with sane defaults. */
+function normaliseParties(raw: unknown): MatterParty[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((p): p is Record<string, unknown> => typeof p === 'object' && p !== null)
+    .map((p) => ({
+      partyId:
+        typeof p.partyId === 'string'
+          ? p.partyId
+          : typeof p.id === 'string'
+            ? p.id
+            : typeof p.name === 'string'
+              ? p.name
+              : 'unknown',
+      kind:
+        p.kind === 'client' || p.kind === 'counterparty' || p.kind === 'common_interest'
+          ? p.kind
+          : 'counterparty',
+      role: typeof p.role === 'string' ? p.role : 'party',
+    }));
 }
 
 function toMatter(row: MatterRow): Matter {
+  // Derive settledPositions from top-level columns we know about.
+  // `governing_law` is a flat column in the existing schema; the rest
+  // of "positions" lives in matter_memory / deal_parameters (Stage B
+  // wires those properly).
+  const settledPositions = row.governing_law
+    ? [{ clauseType: 'governing_law', currentValue: row.governing_law }]
+    : [];
+
   return {
     id: row.id,
-    firmId: row.firm_id,
+    firmId: row.firm_id ?? '',
     clientId: row.client_id ?? '',
-    matterType: row.matter_type ?? 'other',
-    stage: (row.stage ?? 'in_negotiation') as MatterStage,
-    privilegeScope: (row.privilege_scope ?? 'open') as PrivilegeScope,
-    openedAt: row.opened_at ?? new Date(0).toISOString(),
-    closedAt: row.closed_at,
-    parties: row.parties ?? [],
-    // Positions are populated by the positions repository in Stage B
-    // when migration 003 lands. Until then they come back empty.
+    matterType: (row.deal_parameters?.matter_type as string) ?? 'other',
+    stage: ((row.stage as MatterStage) ??
+      (row.archived ? 'closed' : 'in_negotiation')) as MatterStage,
+    privilegeScope: (row.privilege_scope as PrivilegeScope) ?? 'open',
+    openedAt: row.created_at ?? new Date(0).toISOString(),
+    closedAt: row.archived ? row.last_accessed : null,
+    parties: normaliseParties(row.parties),
+    // Open positions extracted from matter_memory in Stage B
     openPositions: [],
-    settledPositions: [],
-    state: row.state ?? {},
+    settledPositions,
+    state: row.context ?? {},
   };
 }
+
+const SELECT_COLS =
+  'id, firm_id, user_id, client_id, client_name, matter_name, ' +
+  'governing_law, parties, deal_parameters, context, created_at, ' +
+  'last_accessed, archived, stage, privilege_scope';
 
 // ============================================================
 // Public API
@@ -115,13 +155,9 @@ function toMatter(row: MatterRow): Matter {
 
 export const mattersRepository = {
   /**
-   * Fetch a single matter by id. Returns null if not found in firm's
-   * workspace (or if RLS denies the read).
+   * Fetch a single matter by id, scoped to the firm.
    */
   async findById(firmId: string, matterId: string): Promise<Matter | null> {
-    // Stub fallback path — only used when Supabase isn't configured at
-    // all. We don't fall through to stubs on Supabase errors; those
-    // should surface so we notice misconfiguration.
     if (!isSupabaseConfigured()) {
       const stub = STUB_MATTERS[matterId];
       if (!stub) return null;
@@ -134,9 +170,7 @@ export const mattersRepository = {
 
     const { data, error } = await supabase
       .from('matters')
-      .select(
-        'id, firm_id, client_id, matter_type, stage, privilege_scope, opened_at, closed_at, parties, state'
-      )
+      .select(SELECT_COLS)
       .eq('id', matterId)
       .eq('firm_id', firmId)
       .maybeSingle();
@@ -146,19 +180,17 @@ export const mattersRepository = {
       throw new Error(`Failed to read matter: ${error.message}`);
     }
 
-    return data ? toMatter(data as MatterRow) : null;
+    return data ? toMatter(data as unknown as MatterRow) : null;
   },
 
   /**
-   * List matters filtered by client, status, counterparty. Stage A
-   * returns an empty array when Supabase isn't configured.
+   * List matters for a firm, optionally filtered by client / stage / counterparty.
    */
   async list(
     firmId: string,
     filters: { clientId?: string; status?: string; counterparty?: string }
   ): Promise<Matter[]> {
     if (!isSupabaseConfigured()) {
-      // Return stubbed matter(s) that belong to this firm, filtered.
       return Object.values(STUB_MATTERS)
         .filter((m) => m.firmId === firmId)
         .filter((m) => !filters.clientId || m.clientId === filters.clientId)
@@ -170,11 +202,9 @@ export const mattersRepository = {
 
     let query = supabase
       .from('matters')
-      .select(
-        'id, firm_id, client_id, matter_type, stage, privilege_scope, opened_at, closed_at, parties, state'
-      )
+      .select(SELECT_COLS)
       .eq('firm_id', firmId)
-      .order('opened_at', { ascending: false })
+      .order('created_at', { ascending: false })
       .limit(50);
 
     if (filters.clientId) query = query.eq('client_id', filters.clientId);
@@ -187,6 +217,6 @@ export const mattersRepository = {
       throw new Error(`Failed to list matters: ${error.message}`);
     }
 
-    return (data ?? []).map((row) => toMatter(row as MatterRow));
+    return (data ?? []).map((row) => toMatter(row as unknown as MatterRow));
   },
 };
