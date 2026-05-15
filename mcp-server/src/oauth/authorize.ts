@@ -300,12 +300,31 @@ export function registerAuthorizeEndpoint(app: FastifyInstance): void {
       );
     }
 
-    // Supabase's generateLink with magicLink type sends the email when
-    // SMTP is configured on the Supabase project (it is — same as the
-    // existing Audrey backend). If SMTP is NOT configured, generateLink
-    // returns the URL in linkData but doesn't send mail — Stage A
-    // assumes SMTP is on.
-    void linkData; // not exposed to the user
+    // Empirically, Supabase's admin.generateLink with type='magiclink'
+    // does NOT reliably send the email even when SMTP is configured —
+    // it generates the link and expects you to send the email yourself
+    // via your own provider. We do exactly that: take the action_link
+    // from linkData and POST to Resend directly.
+    const actionLink = linkData?.properties?.action_link;
+    if (actionLink) {
+      const sent = await sendMagicLinkEmail({
+        to: email,
+        actionLink,
+      });
+      if (!sent.ok) {
+        console.error(
+          '[audrey-oauth] resend send failed; user will not receive email:',
+          sent.error
+        );
+        // Still show "check email" page — we don't want to leak that send failed.
+        // The action_link is in deploy logs for operator fallback.
+      } else {
+        console.error(
+          '[audrey-oauth] resend send succeeded; id:',
+          sent.id ?? '(none)'
+        );
+      }
+    }
 
     reply.type('text/html');
     return htmlPage(
@@ -447,4 +466,92 @@ function escapeHtml(s: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
+}
+
+// ============================================================
+// Send magic-link email via Resend (direct REST API).
+// We don't rely on Supabase's auth.admin.generateLink to send the
+// email — that path has been empirically unreliable. We take the
+// action_link from generateLink and send it ourselves.
+// ============================================================
+
+interface SendResult {
+  ok: boolean;
+  id?: string;
+  error?: string;
+}
+
+async function sendMagicLinkEmail(args: {
+  to: string;
+  actionLink: string;
+}): Promise<SendResult> {
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) {
+    return {
+      ok: false,
+      error:
+        'RESEND_API_KEY not set in environment — magic-link emails cannot be ' +
+        'sent. Add the key in Railway env vars.',
+    };
+  }
+
+  const fromAddress =
+    process.env.RESEND_FROM_EMAIL ?? 'Audrey <audrey-noreply@send.xeqtor.com>';
+
+  const html = `<!doctype html>
+<html><body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 560px; margin: 0 auto; padding: 32px 24px; color: #1a1a1a;">
+  <h1 style="font-size: 22px; margin: 0 0 16px;">Sign in to Audrey</h1>
+  <p style="font-size: 15px; line-height: 1.5; color: #444;">
+    You requested a sign-in link for Audrey, your firm's matter intelligence assistant.
+    Click the button below to complete sign-in. This link expires in 1 hour and can only be used once.
+  </p>
+  <p style="margin: 28px 0;">
+    <a href="${args.actionLink}" style="display: inline-block; padding: 12px 24px; background: #1a1a1a; color: #fff; text-decoration: none; border-radius: 6px; font-weight: 500;">Sign in to Audrey</a>
+  </p>
+  <p style="font-size: 13px; color: #888;">
+    If the button doesn't work, copy and paste this URL into your browser:<br>
+    <span style="word-break: break-all; color: #666;">${escapeHtml(args.actionLink)}</span>
+  </p>
+  <hr style="margin: 32px 0; border: none; border-top: 1px solid #eee;">
+  <p style="font-size: 12px; color: #999;">
+    If you didn't request this, you can safely ignore this email — nothing will happen and no one can sign in to your account.
+  </p>
+</body></html>`;
+
+  const text =
+    `Sign in to Audrey\n\n` +
+    `Click this link to complete sign-in:\n${args.actionLink}\n\n` +
+    `This link expires in 1 hour and can only be used once.\n\n` +
+    `If you didn't request this, you can ignore this email.`;
+
+  try {
+    const response = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from: fromAddress,
+        to: args.to,
+        subject: 'Sign in to Audrey',
+        html,
+        text,
+      }),
+    });
+
+    if (!response.ok) {
+      const body = await response.text();
+      return {
+        ok: false,
+        error: `Resend HTTP ${response.status}: ${body.slice(0, 300)}`,
+      };
+    }
+
+    const json = (await response.json()) as { id?: string };
+    return { ok: true, id: json.id };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { ok: false, error: msg };
+  }
 }
