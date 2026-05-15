@@ -13,6 +13,7 @@
 import { z } from 'zod';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { mattersRepository } from '../repositories/matters.js';
+import { positionsRepository } from '../repositories/positions.js';
 
 // ============================================================
 // Tool definition (advertised to Claude)
@@ -82,11 +83,45 @@ export async function handleGetMatter(
     };
   }
 
+  // Enrich with Stage B positions data — the matters table itself
+  // doesn't carry positions; they live in the positions table.
+  const activePositions = await positionsRepository.listActive(firmId, matter_id);
+
+  const openPositions = activePositions
+    .filter((p) => p.status === 'open' || p.status === 'proposed')
+    .map((p) => ({
+      clauseType: p.clauseType,
+      currentValue: p.value,
+      counterparty: p.counterpartyName,
+      partyRole: p.partyRole,
+      assertedBy: p.extractedBy.startsWith('user:') ? 'user' : 'audrey',
+      assertedAt: p.createdAt,
+      confidence: p.confidence,
+    }));
+
+  const settledPositions = activePositions
+    .filter((p) => p.status === 'settled')
+    .map((p) => ({
+      clauseType: p.clauseType,
+      currentValue: p.value,
+      counterparty: p.counterpartyName,
+      partyRole: p.partyRole,
+      assertedBy: p.extractedBy.startsWith('user:') ? 'user' : 'audrey',
+      assertedAt: p.createdAt,
+    }));
+
+  const enriched = {
+    ...matter,
+    openPositions,
+    settledPositions,
+    activePositionsCount: activePositions.length,
+  };
+
   return {
     content: [
       {
         type: 'text',
-        text: JSON.stringify(matter, null, 2),
+        text: JSON.stringify(enriched, null, 2),
       },
     ],
   };
