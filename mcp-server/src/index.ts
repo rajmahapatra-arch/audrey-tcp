@@ -55,6 +55,10 @@ import {
   searchMatterTextTool,
   handleSearchMatterText,
 } from './tools/extractionTools.js';
+import {
+  uploadDocumentTool,
+  handleUploadDocument,
+} from './tools/uploadDocument.js';
 import { isSupabaseConfigured } from './db/supabase.js';
 import { auditAsync } from './audit.js';
 import { resolveFirmId } from './auth.js';
@@ -108,6 +112,7 @@ function createMcpServer(): McpServer {
       addPositionTool,
       audreyCheckDraftTool,
       searchMatterTextTool,
+      uploadDocumentTool,
     ],
   }));
 
@@ -167,6 +172,9 @@ function createMcpServer(): McpServer {
           break;
         case 'search_matter_text':
           result = await handleSearchMatterText(args, firmId);
+          break;
+        case 'upload_document':
+          result = await handleUploadDocument(args, firmId, userId);
           break;
         default:
           auditAsync({
