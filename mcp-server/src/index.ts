@@ -59,6 +59,10 @@ import {
   uploadDocumentTool,
   handleUploadDocument,
 } from './tools/uploadDocument.js';
+import {
+  revokeMySessionTool,
+  handleRevokeMySession,
+} from './tools/sessionTools.js';
 import { isSupabaseConfigured } from './db/supabase.js';
 import { auditAsync } from './audit.js';
 import { resolveFirmId } from './auth.js';
@@ -113,6 +117,7 @@ function createMcpServer(): McpServer {
       audreyCheckDraftTool,
       searchMatterTextTool,
       uploadDocumentTool,
+      revokeMySessionTool,
     ],
   }));
 
@@ -175,6 +180,9 @@ function createMcpServer(): McpServer {
           break;
         case 'upload_document':
           result = await handleUploadDocument(args, firmId, userId);
+          break;
+        case 'revoke_my_session':
+          result = await handleRevokeMySession(args, firmId, userId);
           break;
         default:
           auditAsync({
