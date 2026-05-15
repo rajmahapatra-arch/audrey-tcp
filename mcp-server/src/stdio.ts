@@ -23,6 +23,10 @@ import {
   getCounterpartyHistoryTool,
   handleGetCounterpartyHistory,
 } from './tools/getCounterpartyHistory.js';
+import {
+  getMatterByDocumentTool,
+  handleGetMatterByDocument,
+} from './tools/getMatterByDocument.js';
 import { isSupabaseConfigured } from './db/supabase.js';
 import { auditAsync } from './audit.js';
 import { resolveFirmId } from './auth.js';
@@ -37,7 +41,7 @@ const log = (...args: unknown[]) => console.error('[audrey-mcp]', ...args);
 
 const mcp = new McpServer(
   {
-    name: 'audrey-tcp',
+    name: 'audrey',
     version: '0.1.0',
   },
   {
@@ -48,7 +52,12 @@ const mcp = new McpServer(
 );
 
 mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
-  tools: [getMatterTool, listMattersTool, getCounterpartyHistoryTool],
+  tools: [
+    getMatterByDocumentTool,
+    getMatterTool,
+    listMattersTool,
+    getCounterpartyHistoryTool,
+  ],
 }));
 
 mcp.setRequestHandler(CallToolRequestSchema, async (request) => {
@@ -73,6 +82,9 @@ mcp.setRequestHandler(CallToolRequestSchema, async (request) => {
         break;
       case 'get_counterparty_history':
         result = await handleGetCounterpartyHistory(args, firmId);
+        break;
+      case 'get_matter_by_document':
+        result = await handleGetMatterByDocument(args, firmId);
         break;
       default:
         auditAsync({

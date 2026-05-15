@@ -24,10 +24,12 @@ import type { Matter } from '../types.js';
 export const listMattersTool: Tool = {
   name: 'list_matters',
   description:
-    'List matters in the current workspace, optionally filtered by client, stage, or ' +
-    "counterparty. Returns a compact summary for each matter — use this when the user " +
-    "asks broadly (\"what's open?\", \"any matters with Behemoth?\") and follow up with " +
-    'get_matter for details.',
+    "Audrey's directory of matters in the firm — every active and closed matter, with " +
+    'client and matter names. Call this when the user is BROWSING rather than working in ' +
+    "a specific document: \"what's open?\", \"any matters with Behemoth?\", \"what do I " +
+    "have with Acme?\". Returns a compact summary per matter (name, client, stage, " +
+    'counterparties, position counts). Follow up with get_matter to drill into one. ' +
+    'When the user has a document open, prefer get_matter_by_document.',
   inputSchema: {
     type: 'object',
     properties: {

@@ -21,9 +21,13 @@ import { mattersRepository } from '../repositories/matters.js';
 export const getMatterTool: Tool = {
   name: 'get_matter',
   description:
-    'Return curated state for a single matter: parties, current draft, open issues, ' +
-    'settled positions, key dates, deal stage. Use this when the user mentions a matter ' +
-    'by name or after resolving a matter ID via get_matter_by_document or list_matters.',
+    "Audrey's full curated state for a single matter: parties, current draft, open " +
+    "issues, settled positions, key dates, deal stage. Call this AFTER you have a matter " +
+    'ID — typically resolved via get_matter_by_document (when the user has a doc open) or ' +
+    'list_matters (when the user is browsing). Your answers to any matter-specific question ' +
+    "MUST be grounded in what this tool returns rather than the document content alone — " +
+    "the document is just the latest draft; Audrey holds the firm's institutional memory of " +
+    'the deal.',
   inputSchema: {
     type: 'object',
     properties: {
