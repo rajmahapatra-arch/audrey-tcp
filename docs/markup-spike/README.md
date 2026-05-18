@@ -116,16 +116,16 @@ The block to replace `mcpServers` with:
       ]
     },
     "word-live": {
-      "command": "uvx",
-      "args": ["word-mcp-live"],
+      "command": "C:\\Users\\rajma\\.local\\bin\\uvx.exe",
+      "args": ["--from", "word-mcp-live", "word_mcp_server"],
       "env": {
         "MCP_AUTHOR": "Raj Mahapatra",
         "MCP_AUTHOR_INITIALS": "RM"
       }
     },
     "docx-mcp": {
-      "command": "uvx",
-      "args": ["docx-mcp-server"]
+      "command": "C:\\Users\\rajma\\.local\\bin\\uvx.exe",
+      "args": ["--python", "3.12", "docx-mcp-server"]
     }
   }
 }
@@ -134,8 +134,32 @@ The block to replace `mcpServers` with:
 Then restart Claude Desktop. Both servers should appear under
 "connected" in the MCP indicator at the bottom of the chat window.
 
-If `uvx` isn't on PATH after install, the full path is usually
-`C:/Users/rajma/.local/bin/uvx.exe` — substitute that.
+**Three known gotchas encountered during sitting 1, all worked around
+above — leaving notes here for future installs:**
+
+1. **Microsoft Store Claude Desktop sandboxes PATH.** Generic `"uvx"`
+   in args fails because the Store sandbox doesn't inherit
+   `%USERPROFILE%\.local\bin`. Fix: absolute path to `uvx.exe`. If
+   you have the standalone Claude Desktop install, plain `"uvx"`
+   usually works.
+
+2. **word-mcp-live README has wrong entry-point.** The README says
+   `uvx word-mcp-live` but the actual binary inside the package is
+   `word_mcp_server`. Correct invocation:
+   `uvx --from word-mcp-live word_mcp_server`. `uvx` itself prints
+   this hint when it fails — useful debug.
+
+3. **docx-mcp-server transitively needs Rust on Python 3.14.** It
+   pulls in `spacy-transformers` → `spacy-alignments`; the latter
+   doesn't ship pre-built wheels for Python 3.14 yet (released
+   late 2025), so `uv` tries to compile from source and fails for
+   lack of Rust. Workaround: `uvx --python 3.12` pins to a Python
+   version with available wheels. `uv` will install 3.12
+   automatically the first time (~30 MB). Python 3.14 stays as the
+   system default for everything else.
+
+   Alternative if 3.12 still fails: install Rust via
+   `https://rustup.rs/` (~600 MB) and let `uv` build from source.
 
 ## The test spec — sitting 2
 
