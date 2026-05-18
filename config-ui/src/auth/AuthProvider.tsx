@@ -69,6 +69,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             // Graph scopes (e.g. Mail.Read for inbox ingestion later)
             // would be added per feature, not blanket here.
             scopes: 'email openid profile',
+            // Force the Microsoft account picker every sign-in. Many
+            // lawyers have both a work and personal MS account on the
+            // same email; without this, the browser silently picks
+            // whichever one it remembers and the auth fails with an
+            // opaque "Error getting user email from external provider"
+            // when the chosen account doesn't expose an email claim.
+            queryParams: {
+              prompt: 'select_account',
+            },
           },
         });
         if (error) {
