@@ -153,12 +153,36 @@ above — leaving notes here for future installs:**
    pulls in `spacy-transformers` → `spacy-alignments`; the latter
    doesn't ship pre-built wheels for Python 3.14 yet (released
    late 2025), so `uv` tries to compile from source and fails for
-   lack of Rust. Workaround: `uvx --python 3.12` pins to a Python
-   version with available wheels. `uv` will install 3.12
-   automatically the first time (~30 MB). Python 3.14 stays as the
-   system default for everything else.
+   lack of Rust.
 
-   Alternative if 3.12 still fails: install Rust via
+   First attempt was `uvx --python 3.12` in args — this triggered
+   a separate `uv` bug ("Missing expected target directory for
+   Python minor version link") even though Python 3.12.13 actually
+   installed successfully and works.
+
+   Working fix: install docx-mcp as a persistent uv tool, pinned
+   to the absolute path of the Python 3.12 install, then point
+   Claude Desktop at the resulting binary directly:
+
+   ```powershell
+   uv tool install docx-mcp-server `
+     --python "C:\Users\rajma\AppData\Roaming\uv\python\cpython-3.12.13-windows-x86_64-none\python.exe"
+   ```
+
+   This drops `docx-mcp-server.exe` in `C:\Users\rajma\.local\bin\`.
+   The Claude Desktop entry becomes a direct call:
+
+   ```json
+   "docx-mcp": {
+     "command": "C:\\Users\\rajma\\.local\\bin\\docx-mcp-server.exe",
+     "args": []
+   }
+   ```
+
+   Bonus: this also makes startup near-instant on subsequent
+   restarts because there's no per-launch dependency resolution.
+
+   Alternative if you prefer the uvx pattern: install Rust via
    `https://rustup.rs/` (~600 MB) and let `uv` build from source.
 
 ## The test spec — sitting 2
