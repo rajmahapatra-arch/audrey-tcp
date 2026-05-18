@@ -86,10 +86,25 @@ on first invocation via `uvx <package>` — no separate install step.
 
 ## Claude Desktop configuration
 
-The current `claude_desktop_config.json` at
-`C:/Users/rajma/AppData/Roaming/Claude/claude_desktop_config.json`
-has Audrey wired in. Add both markup MCPs alongside Audrey by
-replacing the `mcpServers` block with:
+The current `claude_desktop_config.json` has Audrey wired in. Add
+both markup MCPs alongside Audrey by replacing the `mcpServers`
+block.
+
+**Config file location depends on how Claude Desktop was installed:**
+
+- **Microsoft Store install (Raj's machine):**
+  `C:\Users\rajma\AppData\Local\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\Claude\claude_desktop_config.json`
+  The Store sandbox redirects what the app *thinks* is
+  `AppData\Roaming\Claude\` into a Package-isolated path. The
+  standard documented location doesn't exist as a normal file.
+  Quickest way to open: `notepad C:\Users\rajma\AppData\Local\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\Claude\claude_desktop_config.json`
+  from a Run dialog (Win+R).
+
+- **Standalone install (most public docs):**
+  `%APPDATA%\Claude\claude_desktop_config.json`
+  i.e. `C:\Users\<you>\AppData\Roaming\Claude\…`
+
+The block to replace `mcpServers` with:
 
 ```json
 {
