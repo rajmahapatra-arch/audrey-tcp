@@ -66,23 +66,35 @@ target UX. But `docx-mcp`'s validation discipline and tool curation
 suggest a more rigorous engineering culture — worth seeing how that
 manifests in actual edit quality.
 
-## Required setup before sitting 2
+## Required setup before sitting 2 — DONE during sitting 1
 
-**Both MCPs need Python 3.11+ installed.** This machine currently has
-no real Python (only the Windows Store stub). Sitting 2 starts with:
+All toolchain install is complete on raj-xps-2026 (the dev machine).
+The list below is preserved for any future machine setup; on Raj's
+current machine you can skip straight to "The test spec".
+
+<details>
+<summary>Original install list (already complete)</summary>
+
+Both MCPs need Python 3.11+ installed.
 
 1. Install Python 3.11+ from [python.org](https://www.python.org/downloads/)
    — pick "Add Python to PATH" during the installer wizard.
+   (Currently installed: Python 3.14.5.)
 2. Install `uv` (the fast Python package manager that provides `uvx`):
    ```powershell
    powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
    ```
+   (Currently installed: uv 0.11.15.)
 3. Verify: `uvx --version` should print a version number.
 
-Estimated time: 5–10 minutes.
+For docx-mcp specifically, an additional persistent install step was
+needed (see gotcha #3 in the Claude Desktop config section). That's
+also done; `C:\Users\rajma\.local\bin\docx-mcp-server.exe` is in place.
 
-After Python + uv are installed, the MCP servers themselves install
-on first invocation via `uvx <package>` — no separate install step.
+Estimated time for a fresh machine: 5–10 minutes + ~5 minutes of
+gotcha-debugging if you hit any of the three documented issues below.
+
+</details>
 
 ## Claude Desktop configuration
 
