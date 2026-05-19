@@ -53,6 +53,10 @@ import {
   revokeUserSessionTool,
   handleRevokeUserSession,
 } from './tools/sessionTools.js';
+import {
+  documentHandoffTool,
+  handleDocumentHandoff,
+} from './tools/documentHandoff.js';
 import { isSupabaseConfigured } from './db/supabase.js';
 import { auditAsync } from './audit.js';
 import { resolveFirmId } from './auth.js';
@@ -92,6 +96,7 @@ mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
     uploadDocumentTool,
     revokeMySessionTool,
     revokeUserSessionTool,
+    documentHandoffTool,
   ],
 }));
 
@@ -147,6 +152,9 @@ mcp.setRequestHandler(CallToolRequestSchema, async (request) => {
         break;
       case 'revoke_user_session':
         result = await handleRevokeUserSession(args, firmId, userId);
+        break;
+      case 'audrey_document_handoff':
+        result = await handleDocumentHandoff(args, firmId, userId);
         break;
       default:
         auditAsync({
