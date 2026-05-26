@@ -101,6 +101,15 @@ export const uploadDocumentTool: Tool = {
           'Set true when this is a firm precedent / standard form, not a ' +
           'matter-specific document. Default false.',
       },
+      word_doc_id: {
+        type: 'string',
+        description:
+          'Optional Office stable document identifier (the value of ' +
+          'Word.context.document.url, when available). Pass this when ' +
+          'invoked from a Word add-in surface so the document can be ' +
+          'auto-resolved on subsequent get_matter_by_document calls. ' +
+          'Omit when uploading from chat attachments or non-Word surfaces.',
+      },
     },
   },
 };
@@ -111,6 +120,7 @@ const UploadInput = z.object({
   content: z.string().min(20).max(500_000),
   doc_type: z.string().min(1).max(100).optional(),
   is_precedent: z.boolean().optional(),
+  word_doc_id: z.string().min(1).max(2048).optional(),
 });
 
 // ============================================================
@@ -155,7 +165,13 @@ export async function handleUploadDocument(
     });
   }
 
-  // 2. Insert the document
+  // 2. Insert the document.
+  //
+  // word_doc_id is NULL when the upload didn't come from a Word add-in
+  // surface (chat attachment, config-ui drag-and-drop, etc.). The
+  // legacy NOT NULL constraint on this column was dropped in
+  // migration 013; if you see "null value in column word_doc_id"
+  // errors here, that migration hasn't been run yet.
   const { data: inserted, error: insertErr } = await db
     .from('documents')
     .insert({
@@ -165,6 +181,7 @@ export async function handleUploadDocument(
       content: parsed.data.content,
       doc_type: parsed.data.doc_type ?? null,
       is_precedent: parsed.data.is_precedent ?? false,
+      word_doc_id: parsed.data.word_doc_id ?? null,
       user_id: userId,
       status: 'active',
       added_at: new Date().toISOString(),
