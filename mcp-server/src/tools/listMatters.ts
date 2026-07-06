@@ -24,12 +24,9 @@ import type { Matter } from '../types.js';
 export const listMattersTool: Tool = {
   name: 'list_matters',
   description:
-    "Audrey's directory of matters in the firm — every active and closed matter, with " +
-    'client and matter names. Call this when the user is BROWSING rather than working in ' +
-    "a specific document: \"what's open?\", \"any matters with Behemoth?\", \"what do I " +
-    "have with Acme?\". Returns a compact summary per matter (name, client, stage, " +
-    'counterparties, position counts). Follow up with get_matter to drill into one. ' +
-    'When the user has a document open, prefer get_matter_by_document.',
+    "Directory of the firm's matters — name, client, stage, counterparties, open-position " +
+    "count. For browsing (\"what's open with Acme?\"); filter by client_id, stage, or " +
+    'counterparty. Prefer get_matter_by_document when a document is open.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -152,14 +149,10 @@ export async function handleListMatters(
     content: [
       {
         type: 'text',
-        text: JSON.stringify(
-          {
-            count: filtered.length,
-            matters: filtered.map(toSummary),
-          },
-          null,
-          2
-        ),
+        text: JSON.stringify({
+          count: filtered.length,
+          matters: filtered.map(toSummary),
+        }),
       },
     ],
   };

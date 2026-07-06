@@ -22,13 +22,9 @@ import { positionsRepository } from '../repositories/positions.js';
 export const getMatterTool: Tool = {
   name: 'get_matter',
   description:
-    "Audrey's full curated state for a single matter: parties, current draft, open " +
-    "issues, settled positions, key dates, deal stage. Call this AFTER you have a matter " +
-    'ID — typically resolved via get_matter_by_document (when the user has a doc open) or ' +
-    'list_matters (when the user is browsing). Your answers to any matter-specific question ' +
-    "MUST be grounded in what this tool returns rather than the document content alone — " +
-    "the document is just the latest draft; Audrey holds the firm's institutional memory of " +
-    'the deal.',
+    'Full curated state of one matter: parties, stage, key dates, open and settled ' +
+    'positions. Needs the matter UUID (from get_matter_by_document or list_matters). ' +
+    'Ground matter-specific answers in this, not the document text alone.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -121,7 +117,7 @@ export async function handleGetMatter(
     content: [
       {
         type: 'text',
-        text: JSON.stringify(enriched, null, 2),
+        text: JSON.stringify(enriched),
       },
     ],
   };

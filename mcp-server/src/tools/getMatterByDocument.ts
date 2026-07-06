@@ -38,36 +38,27 @@ import type { Matter } from '../types.js';
 export const getMatterByDocumentTool: Tool = {
   name: 'get_matter_by_document',
   description:
-    'Resolve the open Word document to a matter in Audrey. **WHENEVER the user has a ' +
-    "document open and asks ANY question about it, this MUST be your first call** — before " +
-    "answering, before reading the document content, before any other Audrey tool. It " +
-    'returns matter context (parties, stage, settled positions, counterparty history pointer) ' +
-    "so your answers are grounded in the firm's prior negotiation and not just what's on the " +
-    'page. Pass any combination of word_doc_id (preferred — Office gives you this), ' +
-    'document_name (the filename), or content_snippet (a defined-term or first-line excerpt). ' +
-    "If the document is a client standard form not yet placed in a matter, the response " +
-    "will say so and you should offer the user the option to place it.",
+    'Resolve an open document to its Audrey matter — call this first whenever the user is ' +
+    'working in a document. Matches by Office ID, filename, and content (party/client names ' +
+    'in the snippet help a lot); returns the matter summary with confidence and alternatives, ' +
+    'or a precedent/unknown status.',
   inputSchema: {
     type: 'object',
+    required: ['document_name'],
     properties: {
-      word_doc_id: {
-        type: 'string',
-        description:
-          "Office's stable document identifier (preferred). Word's add-in API gives you this " +
-          'via context.document.url or document.id.',
-      },
       document_name: {
         type: 'string',
-        description:
-          'Filename of the open document, e.g. "KBR_ADNOC_v4.docx". Extension and version ' +
-          'suffixes are stripped automatically.',
+        description: 'Filename of the open document, e.g. "KBR_ADNOC_v4.docx". Always available — required.',
+      },
+      word_doc_id: {
+        type: 'string',
+        description: "Office's stable document identifier when available (context.document.url). Most precise.",
       },
       content_snippet: {
         type: 'string',
         description:
-          'A distinctive phrase or defined term from the document — e.g. the matter title ' +
-          'from the doc header, or the names of the parties as written in the recitals. ' +
-          'Used as a fallback when neither word_doc_id nor document_name is available.',
+          'First ~300 characters of the document INCLUDING the party names from the ' +
+          'recitals — enables matching by client and matter name. Strongly recommended.',
       },
     },
   },
@@ -78,13 +69,10 @@ export const getMatterByDocumentTool: Tool = {
 // ============================================================
 
 const Input = z.object({
+  document_name: z.string().min(1),
   word_doc_id: z.string().min(1).optional(),
-  document_name: z.string().min(1).optional(),
   content_snippet: z.string().min(3).optional(),
-}).refine(
-  (v) => v.word_doc_id || v.document_name || v.content_snippet,
-  { message: 'At least one of word_doc_id, document_name, content_snippet is required' }
-);
+});
 
 // ============================================================
 // Output mapping
@@ -137,23 +125,17 @@ export async function handleGetMatterByDocument(
       content: [
         {
           type: 'text',
-          text: JSON.stringify(
-            {
-              result: 'precedent_only',
-              document: {
-                id: result.document.id,
-                name: result.document.name,
-                word_doc_id: result.document.wordDocId,
-                is_precedent: true,
-              },
-              message:
-                'This document is a precedent (client standard form) in Audrey, not yet ' +
-                'placed in a specific matter. Offer the user the option to place it in an ' +
-                'existing matter (list_matters to choose) or start a new matter.',
+          text: JSON.stringify({
+            result: 'precedent_only',
+            document: {
+              id: result.document.id,
+              name: result.document.name,
+              word_doc_id: result.document.wordDocId,
+              is_precedent: true,
             },
-            null,
-            2
-          ),
+            message:
+              'Known precedent, not placed in a matter. Offer to place it (list_matters to choose).',
+          }),
         },
       ],
     };
@@ -165,18 +147,12 @@ export async function handleGetMatterByDocument(
       content: [
         {
           type: 'text',
-          text: JSON.stringify(
-            {
-              result: 'unknown',
-              message:
-                'Audrey does not have this document linked to any matter yet. Either it ' +
-                "hasn't been ingested, or the hint provided doesn't match anything. Ask " +
-                'the user which matter this belongs to, or call list_matters for them to ' +
-                'choose. If they decide on a matter, you can place this document in it.',
-            },
-            null,
-            2
-          ),
+          text: JSON.stringify({
+            result: 'unknown',
+            message:
+              'No matter linked to this document. Ask the user which matter it belongs to ' +
+              '(or list_matters), then offer to place it.',
+          }),
         },
       ],
     };
@@ -187,29 +163,24 @@ export async function handleGetMatterByDocument(
     content: [
       {
         type: 'text',
-        text: JSON.stringify(
-          {
-            result: 'matched',
-            confidence: result.confidence,
-            matter: result.matter ? matterSummary(result.matter) : null,
-            document: result.document
-              ? {
-                  id: result.document.id,
-                  name: result.document.name,
-                  word_doc_id: result.document.wordDocId,
-                  is_precedent: result.document.isPrecedent,
-                }
-              : null,
-            alternatives: result.alternatives.map(matterSummary),
-            message:
-              result.confidence === 'exact'
-                ? 'Matter identified with high confidence. Use this context when answering.'
-                : "Best fuzzy match — if this doesn't look right, check the alternatives or " +
-                  'ask the user to confirm.',
-          },
-          null,
-          2
-        ),
+        text: JSON.stringify({
+          result: 'matched',
+          confidence: result.confidence,
+          matter: result.matter ? matterSummary(result.matter) : null,
+          document: result.document
+            ? {
+                id: result.document.id,
+                name: result.document.name,
+                word_doc_id: result.document.wordDocId,
+                is_precedent: result.document.isPrecedent,
+              }
+            : null,
+          alternatives: result.alternatives.map(matterSummary),
+          message:
+            result.confidence === 'exact'
+              ? 'Matter identified with high confidence.'
+              : 'Best fuzzy match — confirm with the user if it looks wrong.',
+        }),
       },
     ],
   };

@@ -22,15 +22,10 @@ import { counterpartiesRepository } from '../repositories/counterparties.js';
 
 export const getCounterpartyHistoryTool: Tool = {
   name: 'get_counterparty_history',
-  description: [
-    "Audrey's cross-matter intelligence on a counterparty: every position they've taken",
-    'on each clause type, citing the matters where it appeared. This is the wedge tool',
-    'lawyers want most. Call this WHENEVER the user is reviewing a counterparty draft,',
-    'replying to their markup, or asking what to expect — e.g. "what does Behemoth',
-    'typically push on liability caps?", "have we negotiated with KBR before?", "what',
-    'positions has ACT accepted on IP indemnity?". Pass the counterparty name',
-    '(case-insensitive partial match supported) and optionally a clause_type filter.',
-  ].join(' '),
+  description:
+    "Every position a counterparty has taken across all matters, grouped by clause type " +
+    'with source matters cited. Use when reviewing their draft or preparing to negotiate ' +
+    '("what does KBR push on liability caps?"). Partial name match; optional clause_type filter.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -97,7 +92,7 @@ export async function handleGetCounterpartyHistory(
     content: [
       {
         type: 'text',
-        text: JSON.stringify(history, null, 2),
+        text: JSON.stringify(history),
       },
     ],
   };
