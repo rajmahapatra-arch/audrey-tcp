@@ -57,6 +57,10 @@ import {
   documentHandoffTool,
   handleDocumentHandoff,
 } from './tools/documentHandoff.js';
+import {
+  tightenEditsTool,
+  handleTightenEdits,
+} from './tools/tightenEdits.js';
 import { isSupabaseConfigured } from './db/supabase.js';
 import { auditAsync } from './audit.js';
 import { resolveFirmId } from './auth.js';
@@ -97,6 +101,7 @@ mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
     revokeMySessionTool,
     revokeUserSessionTool,
     documentHandoffTool,
+    tightenEditsTool,
   ],
 }));
 
@@ -155,6 +160,9 @@ mcp.setRequestHandler(CallToolRequestSchema, async (request) => {
         break;
       case 'audrey_document_handoff':
         result = await handleDocumentHandoff(args, firmId, userId);
+        break;
+      case 'tighten_edits':
+        result = await handleTightenEdits(args);
         break;
       default:
         auditAsync({
