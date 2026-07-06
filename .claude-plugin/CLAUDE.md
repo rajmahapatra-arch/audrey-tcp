@@ -96,45 +96,19 @@ UI.
 
 ## Surgical-edit discipline (Claude for Word)
 
-When you stage or apply tracked changes to a Word document — via
-`propose_doc_edits`, `edit_doc_text`, or any equivalent Word add-in
-tool — the **`old_text` field controls how the redline appears on the
-page**. Word applies the change as a delete-then-insert spanning the
-entire `old_text` range. Wide spans produce block-style tracked
-changes (whole paragraphs struck through, then re-inserted next to
-themselves). Tight spans produce surgical word-level redlines that
-look like a senior lawyer's mark-up.
+The `old_text` span of a staged edit controls how the redline appears:
+wide spans become block-style tracked changes (whole paragraphs struck
+through and re-inserted); tight spans read like a senior lawyer's
+mark-up. Do not hand-construct tight spans — **route every planned
+document edit through Audrey's `tighten_edits` tool first**, in one
+batched call, and stage the returned minimal pairs instead of your
+originals. If an apply step reports an ambiguous anchor, re-run
+`tighten_edits` with a higher `context_words` for that pair.
 
-**Always emit minimal-span edits.** The `old_text` must contain
-*only the words that are actually changing*, plus the smallest
-surrounding context needed to anchor it uniquely in the paragraph
-(usually one or two words on each side — never a full sentence).
-
-**Hard rules:**
-
-1. **Never include unchanged sentences in `old_text` as "context".**
-   If a sentence contains one change and two unchanged neighbours,
-   emit one edit covering just the change — not the whole sentence.
-2. **Multiple changes in the same sentence → multiple separate
-   edits**, each as tight as possible. Don't bundle them.
-3. **Sentence-boundary changes (e.g. joining "but" → period +
-   capitalised next word) → split into two edits**: one for the
-   join, one for the capitalisation. Each lands as a tiny redline
-   the reviewer can accept or reject independently.
-4. **If `old_text` would be longer than 10 words and only 1–3 of
-   those words are actually changing, stop and re-emit as multiple
-   tight edits.** This catches the most common failure mode.
-5. **For mechanical fixes** (typos, grammar like "comprises of" →
-   "comprises", "specified to" → "specific to"), `edit_doc_text`
-   is acceptable. For substantive contract language changes,
-   always use `propose_doc_edits` (review flow) so the user can
-   accept before it lands.
-
-**Why this matters:** lawyers reading redlines need to scan and
-accept/reject each change in isolation. Block diffs force them to
-re-read entire paragraphs to figure out what actually changed. A
-surgical mark-up is the difference between AI assistance that saves
-review time and AI assistance that costs it.
+For substantive contract-language changes, stage via the review flow
+(`propose_doc_edits`) so the user accepts before anything lands;
+direct writes (`edit_doc_text`) are acceptable only for mechanical
+fixes (typos, grammar).
 
 ## Persistent document memory
 
