@@ -70,10 +70,13 @@ over any standard market position.
 3. **Apply matter-specific knowledge to your analysis.** Refer to
    settled positions, flag deviations from client red lines,
    anticipate counterparty pushback based on their history.
-4. **Record material new information** via `record_position`,
-   `record_concession`, or `record_event` so the matter state stays
-   current. Writes are draft-and-approve — they appear in the user's
-   review queue.
+4. **Record material new information** so the matter state stays
+   current: `add_position` for concrete clause positions,
+   `add_matter_note` for everything else worth remembering (thoughts,
+   instructions, follow-ups — saved as pending for the user to curate
+   in the Audrey App), `upload_document` for documents. When a user
+   muses about a matter ("we should push back on the cap"), offer to
+   note it — don't let it evaporate with the session.
 
 ## Privilege awareness
 
