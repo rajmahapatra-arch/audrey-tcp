@@ -329,6 +329,57 @@ export const mattersRepository = {
       }
     }
 
+    // === Step 4: reverse containment — does a matter or client NAME
+    // appear inside the hint text? Steps 2-3 ask "is the hint a
+    // substring of the stored name", which fails for real-world doc
+    // names like "Form - Mutual NDA - May 2026 - Jim Garvey.docx"
+    // (matter is just "NDA") and recital snippets like "...between
+    // Elion Holdco Limited and..." (client is "Elion"). Here we flip
+    // the direction: scan the firm's matters and score each by whether
+    // its matter_name / client_name occurs in the combined hint, on
+    // word boundaries so short names like "NDA" don't false-positive
+    // inside words like "standard".
+    const haystack = [hint.documentName, hint.contentSnippet]
+      .filter(Boolean)
+      .join(' ');
+    if (haystack.trim().length >= 3) {
+      const { data: all, error } = await supabase
+        .from('matters')
+        .select(SELECT_COLS)
+        .eq('firm_id', firmId)
+        .order('created_at', { ascending: false })
+        .limit(500);
+
+      if (error) {
+        console.error('[audrey-mcp] findByDocument (reverse) error:', error.message);
+      } else if (all && all.length > 0) {
+        const containsName = (name: string | null): boolean => {
+          if (!name || name.trim().length < 3) return false;
+          const escaped = name.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          return new RegExp(`\\b${escaped}\\b`, 'i').test(haystack);
+        };
+        const scored = all
+          .map((row) => {
+            const m = toMatter(row as unknown as MatterRow);
+            const score =
+              (containsName(m.matterName) ? 2 : 0) +
+              (containsName(m.clientName) ? 1 : 0);
+            return { m, score };
+          })
+          .filter((s) => s.score > 0)
+          .sort((a, b) => b.score - a.score);
+
+        if (scored.length > 0) {
+          return {
+            matter: scored[0].m,
+            document: null,
+            alternatives: scored.slice(1, 4).map((s) => s.m),
+            confidence: 'fuzzy',
+          };
+        }
+      }
+    }
+
     return { matter: null, document: null, alternatives: [], confidence: 'none' };
   },
 

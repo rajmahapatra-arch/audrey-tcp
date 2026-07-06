@@ -36,7 +36,7 @@ function getServiceClient(): SupabaseClient | null {
 }
 
 const text = (s: unknown) => ({
-  content: [{ type: 'text' as const, text: JSON.stringify(s, null, 2) }],
+  content: [{ type: 'text' as const, text: JSON.stringify(s) }],
 });
 
 // ============================================================
@@ -45,18 +45,9 @@ const text = (s: unknown) => ({
 
 export const revokeMySessionTool: Tool = {
   name: 'revoke_my_session',
-  description: [
-    "Revoke the user's current Audrey JWT and force a fresh sign-in.",
-    'Use this when the user asks to "sign out of Audrey", "reset my',
-    'session", "force re-auth", or wants to test the sign-in flow fresh.',
-    '',
-    'After calling this, the existing token becomes invalid within',
-    'about 30 seconds. Claude.ai (or Claude for Word) will surface the',
-    "disconnect and prompt the user to reconnect — they'll go through",
-    'the magic-link email flow again.',
-    '',
-    'Per-user only — does not affect other members of the firm.',
-  ].join(' '),
+  description:
+    'Sign the current user out of Audrey: their JWT is rejected within ~30s and they ' +
+    're-authenticate via magic link. Per-user only.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -141,19 +132,9 @@ export async function handleRevokeMySession(
 
 export const revokeUserSessionTool: Tool = {
   name: 'revoke_user_session',
-  description: [
-    "Admin: revoke another user's Audrey session by their email. The",
-    'caller must hold role "owner" or "admin" in the firm. The target',
-    "user must be a member of the same firm.",
-    '',
-    'Use cases: lawyer leaves the firm, lost device, compromised account,',
-    "or simply helping a colleague who can't sign back in. After this",
-    "call, the target user's existing JWT becomes invalid within ~30",
-    'seconds and they must re-authenticate via the magic-link flow.',
-    '',
-    'Cross-firm revocation is intentionally not supported — admin scope',
-    'is per-firm, not global.',
-  ].join(' '),
+  description:
+    "Admin only (firm owner/admin): revoke another same-firm user's session by email " +
+    '(lost device, departure, reset). Effective within ~30s; they sign back in via magic link.',
   inputSchema: {
     type: 'object',
     required: ['email'],

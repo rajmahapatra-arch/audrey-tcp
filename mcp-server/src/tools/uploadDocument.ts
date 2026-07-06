@@ -26,7 +26,7 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { queueExtractionJob } from '../extraction/jobRunner.js';
 
 const text = (s: unknown) => ({
-  content: [{ type: 'text' as const, text: JSON.stringify(s, null, 2) }],
+  content: [{ type: 'text' as const, text: JSON.stringify(s) }],
 });
 
 let serviceClient: SupabaseClient | null | undefined;
@@ -50,21 +50,11 @@ function getServiceClient(): SupabaseClient | null {
 
 export const uploadDocumentTool: Tool = {
   name: 'upload_document',
-  description: [
-    "Push a document into Audrey's memory for a specific matter — use this when",
-    'the user attaches a file to the chat or asks you to "save" / "ingest" /',
-    '"add" something to a matter. WITHOUT calling this, files attached to the',
-    "chat live only in this session and Audrey forgets them when the chat ends.",
-    '',
-    'Common cases:',
-    '- User attaches reference docs (JDA, SOW, prior versions) and says',
-    '  "save these to the matter"',
-    '- User shares the open Word document and says "add this to Audrey"',
-    '- User flags a doc as a precedent (is_precedent=true) for the firm pool',
-    '',
-    'After upload, Audrey queues extraction (~30-90 sec). Then ',
-    'get_open_positions and search_matter_text will surface its content.',
-  ].join(' '),
+  description:
+    "Save document text into a matter's memory and queue position extraction (~30-90s; " +
+    'content then surfaces via get_open_positions and search_matter_text). Use when the ' +
+    'user asks to save/ingest/add a doc — chat attachments are otherwise forgotten when ' +
+    'the session ends. Set is_precedent=true for firm standard forms.',
   inputSchema: {
     type: 'object',
     required: ['matter_id', 'name', 'content'],

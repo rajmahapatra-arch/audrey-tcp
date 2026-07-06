@@ -32,7 +32,7 @@ function summarise(p: Position): Record<string, unknown> {
 }
 
 const text = (s: unknown) => ({
-  content: [{ type: 'text' as const, text: JSON.stringify(s, null, 2) }],
+  content: [{ type: 'text' as const, text: JSON.stringify(s) }],
 });
 
 // ============================================================
@@ -41,14 +41,9 @@ const text = (s: unknown) => ({
 
 export const getOpenPositionsTool: Tool = {
   name: 'get_open_positions',
-  description: [
-    "Audrey's view of what's currently OPEN on a matter — clauses still",
-    'under negotiation, no agreed value yet. Call this when the user asks',
-    '"what\'s open?", "what are we still negotiating?", "what do I need to',
-    'close out before signing?". Returns each open position with clause type,',
-    'current value, counterparty, and provenance (whether Audrey extracted it',
-    'or the lawyer asserted it).',
-  ].join(' '),
+  description:
+    'Clauses still under negotiation on a matter (no agreed value yet), with current ' +
+    'values, counterparty, and provenance.',
   inputSchema: {
     type: 'object',
     required: ['matter_id'],
@@ -79,13 +74,9 @@ export async function handleGetOpenPositions(args: unknown, firmId: string) {
 
 export const getSettledPositionsTool: Tool = {
   name: 'get_settled_positions',
-  description: [
-    "Audrey's view of what's been SETTLED on a matter — clauses where both",
-    'sides have agreed and are not under further negotiation. Call this',
-    'when the user asks "what have we agreed?", "what\'s done?", or when',
-    'they want to draft from a base of settled terms. Includes the agreed',
-    'value, counterparty, and which side asserted the settlement.',
-  ].join(' '),
+  description:
+    'Clauses both sides have agreed on a matter, with agreed values, counterparty, ' +
+    'and who asserted the settlement.',
   inputSchema: {
     type: 'object',
     required: ['matter_id'],
@@ -114,13 +105,9 @@ export async function handleGetSettledPositions(args: unknown, firmId: string) {
 
 export const getPositionHistoryTool: Tool = {
   name: 'get_position_history',
-  description: [
-    'Full audit history of positions on a matter, including superseded',
-    'rows, ordered chronologically. This is the "how did we get here?"',
-    'view — useful when the user asks "how has the liability cap evolved?",',
-    '"when did we agree governing law?", or wants to write a deal summary',
-    'showing how positions moved. Optionally filter to a single clause_type.',
-  ].join(' '),
+  description:
+    "Chronological audit trail of a matter's positions including superseded rows — " +
+    'the "how did we get here" view. Optional clause_type filter.',
   inputSchema: {
     type: 'object',
     required: ['matter_id'],
@@ -159,19 +146,10 @@ export async function handleGetPositionHistory(args: unknown, firmId: string) {
 
 export const addPositionTool: Tool = {
   name: 'add_position',
-  description: [
-    'Record a position the lawyer has decided or learned about — the manual',
-    'commit path into Audrey\'s memory. Use this when the user explicitly',
-    'states a position, e.g. "record that KBR has agreed to a 12-month',
-    'liability cap on the ADNOC matter" or "we\'ve decided to push back on',
-    'the IP indemnity scope". This INSERTS a new position row. If a',
-    'previous position exists for the same (matter, clause_type), it is',
-    'automatically superseded — the history is preserved.',
-    '',
-    'Stamped with the user\'s id, confidence 1.0 (user-asserted), and the',
-    'source_note field if the user mentions a basis (e.g. "call with KBR',
-    '2026-05-14"). Audit-logged.',
-  ].join(' '),
+  description:
+    'Record a position the lawyer asserts ("record that KBR agreed a 12-month cap"). ' +
+    'Inserts a user-attributed row; any prior position for the same clause on the matter ' +
+    'is superseded with history preserved.',
   inputSchema: {
     type: 'object',
     required: ['matter_id', 'clause_type', 'value', 'status'],

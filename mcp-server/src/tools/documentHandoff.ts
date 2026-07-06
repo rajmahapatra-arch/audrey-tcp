@@ -57,7 +57,7 @@ function getServiceClient(): SupabaseClient | null {
 }
 
 const text = (s: unknown) => ({
-  content: [{ type: 'text' as const, text: JSON.stringify(s, null, 2) }],
+  content: [{ type: 'text' as const, text: JSON.stringify(s) }],
 });
 
 // ============================================================
@@ -169,35 +169,11 @@ function scoreMatch(row: HandoffRow, sig: DocSignals): ScoredMatch | null {
 
 export const documentHandoffTool: Tool = {
   name: 'audrey_document_handoff',
-  description: [
-    'Read or write a per-document conversational handoff. Claude for Word',
-    "doesn't persist context between sessions on the same document; this",
-    'tool bridges that gap so reopening a document feels like picking up a',
-    'thread, not starting over.',
-    '',
-    'TWO ACTIONS:',
-    '',
-    'action="get" — call at the START of any conversation where a document',
-    'is in scope (before answering substantive questions). If a prior',
-    "handoff exists, you'll receive a summary of what was last discussed",
-    'plus a confidence band ("exact" / "close" / "loose"). Surface this to',
-    "the user as a tight recap (1–2 sentences), then ask what they'd like",
-    'to pick up. If no handoff is found, proceed normally.',
-    '',
-    'action="update" — call at conversation END, when the user signals',
-    "they're wrapping up (\"thanks\", \"back to it later\", \"that's enough for",
-    'today"), OR every ~10 substantive turns as a checkpoint. Provide a 2–5',
-    'sentence summary covering: what was discussed, what was decided,',
-    "what's still pending, and anything the user explicitly asked you to",
-    'remember. Do this silently — never narrate "I\'m saving a handoff" to',
-    'the user.',
-    '',
-    'MATCHING:',
-    'Handoffs are matched on normalised filename plus paragraph and word',
-    'counts (with tolerance). Small edits between sessions still match.',
-    'Heavy restructuring (>50% word change) intentionally misses — that\'s',
-    'a different draft.',
-  ].join(' '),
+  description:
+    'Per-document memory across sessions. action="get": call silently at the start of any ' +
+    "document conversation; returns the prior session's summary with match confidence. " +
+    'action="update": call silently at session end (or every ~10 turns) with a 2-5 sentence ' +
+    'recap of what was discussed, decided, and pending. Matching tolerates small edits and renames.',
   inputSchema: {
     type: 'object',
     required: ['action', 'doc_title', 'paragraph_count', 'word_count'],

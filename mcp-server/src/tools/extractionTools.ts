@@ -19,7 +19,7 @@ import { matterMemoryRepository } from '../repositories/matterMemory.js';
 import { mattersRepository } from '../repositories/matters.js';
 
 const text = (s: unknown) => ({
-  content: [{ type: 'text' as const, text: JSON.stringify(s, null, 2) }],
+  content: [{ type: 'text' as const, text: JSON.stringify(s) }],
 });
 
 // ============================================================
@@ -28,17 +28,9 @@ const text = (s: unknown) => ({
 
 export const audreyCheckDraftTool: Tool = {
   name: 'audrey_check_draft',
-  description: [
-    'Preview Audrey extraction on a draft document WITHOUT persisting',
-    'anything. Use this when the user is mid-edit and wants a sanity check',
-    'on what positions this draft takes, or whether it deviates from',
-    'previously settled positions. Pass a matter_id to compare against',
-    'existing settled positions; without one, the response is just the',
-    'positions Audrey identified in the draft.',
-    '',
-    'Cost: one Anthropic API call. No DB writes. No audit entry beyond',
-    'the tool call itself.',
-  ].join(' '),
+  description:
+    'Preview position extraction on draft text without saving anything. Pass matter_id ' +
+    "to also flag deviations from that matter's settled positions. No DB writes.",
   inputSchema: {
     type: 'object',
     required: ['document_text'],
@@ -103,19 +95,10 @@ export async function handleAudreyCheckDraft(args: unknown, firmId: string) {
 
 export const searchMatterTextTool: Tool = {
   name: 'search_matter_text',
-  description: [
-    "Vector search across Audrey's stored document chunks and matter",
-    'memories. Use this when the user asks free-text questions that',
-    "structured tools can't answer cleanly: \"find anywhere we discussed",
-    '60-day cure windows", "any matters mentioning escrow holdback?",',
-    '"what did we say about source-code access?". Returns the top matching',
-    'excerpts with their matter context. Optionally scope to a specific',
-    'matter.',
-    '',
-    'This is the fallback layer: prefer structured tools (get_open_positions,',
-    'get_counterparty_history) when the user asks something structured.',
-    'Reach for this when the question is semantic / open-ended.',
-  ].join(' '),
+  description:
+    'Semantic search across stored documents and matter memories, for open-ended recall ' +
+    '("anywhere we discussed 60-day cure windows?"). Prefer the structured position tools ' +
+    'for structured questions. Optional matter_id scope.',
   inputSchema: {
     type: 'object',
     required: ['query'],
