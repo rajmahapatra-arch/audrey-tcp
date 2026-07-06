@@ -73,6 +73,10 @@ import {
   tightenEditsTool,
   handleTightenEdits,
 } from './tools/tightenEdits.js';
+import {
+  addMatterNoteTool,
+  handleAddMatterNote,
+} from './tools/addMatterNote.js';
 import { isSupabaseConfigured } from './db/supabase.js';
 import { auditAsync } from './audit.js';
 import { resolveFirmId } from './auth.js';
@@ -133,6 +137,7 @@ function createMcpServer(): McpServer {
       revokeUserSessionTool,
       documentHandoffTool,
       tightenEditsTool,
+      addMatterNoteTool,
     ],
   }));
 
@@ -207,6 +212,9 @@ function createMcpServer(): McpServer {
           break;
         case 'tighten_edits':
           result = await handleTightenEdits(args);
+          break;
+        case 'add_matter_note':
+          result = await handleAddMatterNote(args, firmId);
           break;
         default:
           auditAsync({

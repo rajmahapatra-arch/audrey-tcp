@@ -88,6 +88,45 @@ export const matterMemoryRepository = {
   },
 
   /**
+   * Insert a single lawyer-authored note. status='pending' so the
+   * Audrey App's LearnedMemories panel surfaces it for curation
+   * (its default view filters to endorsed+pending; Stage B chunks
+   * use status='active' and stay out of that view).
+   */
+  async addNote(args: {
+    firmId: string;
+    matterId: string;
+    content: string;
+    memoryType: 'decision' | 'preference' | 'context';
+    scope: 'matter' | 'client';
+    embedding: number[] | null;
+    embeddingModel: string | null;
+  }): Promise<{ id: string; createdAt: string }> {
+    const db = getServiceClient();
+    if (!db) throw new Error('matter_memory store unavailable');
+
+    const { data, error } = await db
+      .from('matter_memory')
+      .insert({
+        firm_id: args.firmId,
+        matter_id: args.matterId,
+        memory_type: args.memoryType,
+        content: args.content,
+        scope: args.scope,
+        status: 'pending',
+        embedding: args.embedding,
+        embedding_model: args.embedding ? args.embeddingModel : null,
+      })
+      .select('id, created_at')
+      .single();
+
+    if (error || !data) {
+      throw new Error(`Failed to save note: ${error?.message ?? 'unknown'}`);
+    }
+    return { id: data.id as string, createdAt: data.created_at as string };
+  },
+
+  /**
    * Vector search across a firm's matter_memory rows.
    *
    * Uses pgvector's cosine-distance operator (`<=>`) via a Supabase
