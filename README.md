@@ -48,7 +48,12 @@ Stage A — plugin scaffolding and stub MCP server. See
 
 ## License
 
-See [LICENSE](LICENSE) for the project license. The `skills/`, `agents/`,
-`hooks/`, and `.claude-plugin/` directories may be mirrored under Apache
-2.0 to a separate public repo in a later phase; license posture for the
-MCP server is intentionally undecided until end of Stage A.
+Proprietary — Copyright (c) 2026 Xeqtor Ltd, all rights reserved. See
+[LICENSE](LICENSE). This repository is not open source and no rights
+are granted by access to it.
+
+If plugin-marketplace distribution later requires a permissive
+license, ONLY the thin plugin artifacts (`.claude-plugin/`, `skills/`)
+will be mirrored to a separate public repository under Apache 2.0 —
+the MCP server, extraction/diff engines, migrations, and docs stay in
+this proprietary repository.
