@@ -5,7 +5,7 @@
   "description": "Per-matter, per-counterparty, per-client intelligence for legal work in Claude. Brings the deal, the counterparty's history, and the client's settled positions into every conversation.",
   "homepage": "https://app.audrey.xeqtor.com",
   "repository": "https://github.com/rajmahapatra-arch/audrey-tcp",
-  "license": "Apache-2.0",
+  "license": "UNLICENSED",
   "author": {
     "name": "Xeqtor",
     "email": "hello@xeqtor.com"
