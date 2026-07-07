@@ -229,12 +229,14 @@ so ~0.5d plus the live week.
 - Pivot-memo rewrite to "two surfaces" narrative → before first pilot
   conversation (small, do during Phase B).
 
-## 8. Open questions for Raj
+## 8. Open questions — RESOLVED (defaults taken 2026-07-06 to unblock Phase B)
 
-1. Playbook tab: keep visible in v1, or hide until the review flow can
-   consume playbook rules? (Audit says it's decoupled either way.)
-2. The review button's scope: whole document every time, or
-   selection-scoped review as a second affordance in v1?
-3. During Phase B the deployed App keeps running with chat — freeze
-   deploys of the legacy repo until cutover, or maintain a `legacy`
-   branch for emergency fixes?
+1. **Playbook tab: stays visible in v1.** It's decoupled, its
+   endpoints survive the strip, and removing working functionality
+   buys nothing.
+2. **Review scope: whole-document only in v1.** Selection-scoped
+   review is a clean additive for v1.1.
+3. **No deploy freeze.** All Phase B work happens on a
+   `studio-restoration` branch in the legacy repo; `main` remains the
+   deployable legacy app (chat intact) until the Phase C cutover
+   merge. Emergency fixes land on main as normal.
