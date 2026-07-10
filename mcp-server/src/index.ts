@@ -79,6 +79,11 @@ import {
 } from './tools/addMatterNote.js';
 import { isSupabaseConfigured } from './db/supabase.js';
 import { auditAsync } from './audit.js';
+import {
+  runReview,
+  ReviewInputSchema,
+  ReviewError,
+} from './review/reviewService.js';
 import { resolveFirmId } from './auth.js';
 import { verifyAccessToken } from './oauth/jwt.js';
 import { registerMetadataRoutes } from './oauth/metadata.js';
@@ -317,6 +322,51 @@ app.get('/', async () => ({
   message: 'Audrey TCP MCP server. Connect via Claude with the audrey-tcp plugin installed.',
   documentation: 'https://github.com/rajmahapatra-arch/audrey-tcp',
 }));
+
+// ============================================================
+// Internal REST API — document review (Audrey App studio, B3)
+//
+// Server-to-server only: the legacy Audrey backend proxies the
+// taskpane's "Review document" action here. Auth is the shared
+// INTERNAL_API_KEY secret, NOT OAuth — see reviewService.ts for
+// the trust-model rationale.
+// ============================================================
+
+app.post('/api/review', async (request, reply) => {
+  const expected = process.env.INTERNAL_API_KEY;
+  if (!expected) {
+    if (process.env.NODE_ENV === 'production') {
+      reply.code(503);
+      return { error: 'review service not configured' };
+    }
+    console.warn(
+      '[audrey-review] INTERNAL_API_KEY unset — allowing unauthenticated request (dev mode only)'
+    );
+  } else if (request.headers['x-internal-key'] !== expected) {
+    reply.code(401);
+    return { error: 'unauthorized' };
+  }
+
+  const parsed = ReviewInputSchema.safeParse(request.body);
+  if (!parsed.success) {
+    reply.code(400);
+    return {
+      error: `invalid review request: ${parsed.error.issues
+        .map((i) => `${i.path.join('.')}: ${i.message}`)
+        .join('; ')}`,
+    };
+  }
+
+  try {
+    return await runReview(parsed.data);
+  } catch (err) {
+    const status = err instanceof ReviewError ? err.statusCode : 500;
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('[audrey-review] review failed:', msg);
+    reply.code(status);
+    return { error: msg };
+  }
+});
 
 // ============================================================
 // MCP endpoint — routed by Mcp-Session-Id per spec
