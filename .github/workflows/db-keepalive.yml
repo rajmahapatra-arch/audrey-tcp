@@ -1,0 +1,33 @@
+# Keep the Supabase free-tier project from pausing on inactivity.
+#
+# Supabase pauses free projects after ~7 days without activity (and
+# eventually deletes contents if never restored — we got the warning
+# in July 2026). This ping exercises a real database query through
+# the production backend every 3 days, which counts as activity.
+#
+# Retire this workflow when the project moves to a paid tier (which
+# also brings daily backups — recommended before the first pilot).
+
+name: db-keepalive
+on:
+  schedule:
+    - cron: '17 6 */3 * *'   # every 3rd day, 06:17 UTC
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping production API (touches Supabase)
+        run: |
+          set -e
+          CLIENTS=$(curl -sf -m 30 https://api.audrey.xeqtor.com/api/clients)
+          COUNT=$(echo "$CLIENTS" | python3 -c "import json,sys; print(len(json.load(sys.stdin)))")
+          echo "clients visible: $COUNT"
+          # Empty result = DB unreachable/paused (the backend returns [] on error)
+          if [ "$COUNT" -eq 0 ]; then
+            echo "::error::Production API returned 0 clients — database may be paused or unreachable"
+            exit 1
+          fi
+      - name: Ping TCP server health
+        run: curl -sf -m 30 https://audrey-tcp-production.up.railway.app/health
