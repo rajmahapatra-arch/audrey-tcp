@@ -38,8 +38,30 @@
 
 interface Token {
   text: string;
+  /** punctuation-normalised form used for equality — see normalizeForCompare */
+  norm: string;
   start: number; // char offset of first char in source
   end: number; // char offset AFTER last char
+}
+
+/**
+ * Normalise typographic variants that models routinely "translate"
+ * when rewriting text: curly quotes → straight, dash variants →
+ * hyphen, non-breaking space → space. Without this, a contract in
+ * curly quotes diffed against a model rewrite in straight quotes
+ * mismatches on every quoted token, the LCS collapses, and the whole
+ * passage merges into one mega-pair (field-observed 2026-08 on the
+ * Indorama review: a 5-change passage emitted as a single ~700-char
+ * pair, which then corrupted the apply). Comparison only — emitted
+ * slices always come from the ORIGINAL strings, so the document's own
+ * typography is never rewritten by us.
+ */
+export function normalizeForCompare(s: string): string {
+  return s
+    .replace(/[‘’‚‛′]/g, "'")
+    .replace(/[“”„‟″]/g, '"')
+    .replace(/[–—−]/g, '-')
+    .replace(/ /g, ' ');
 }
 
 export function tokenize(s: string): Token[] {
@@ -47,7 +69,12 @@ export function tokenize(s: string): Token[] {
   const re = /\S+/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(s)) !== null) {
-    tokens.push({ text: m[0], start: m.index, end: m.index + m[0].length });
+    tokens.push({
+      text: m[0],
+      norm: normalizeForCompare(m[0]),
+      start: m.index,
+      end: m.index + m[0].length,
+    });
   }
   return tokens;
 }
@@ -70,7 +97,7 @@ function lcsKeepMasks(a: Token[], b: Token[]): { keepA: boolean[]; keepB: boolea
   for (let i = n - 1; i >= 0; i--) {
     for (let j = m - 1; j >= 0; j--) {
       dp[i * w + j] =
-        a[i].text === b[j].text
+        a[i].norm === b[j].norm
           ? dp[(i + 1) * w + (j + 1)] + 1
           : Math.max(dp[(i + 1) * w + j], dp[i * w + (j + 1)]);
     }
@@ -80,7 +107,7 @@ function lcsKeepMasks(a: Token[], b: Token[]): { keepA: boolean[]; keepB: boolea
   let i = 0;
   let j = 0;
   while (i < n && j < m) {
-    if (a[i].text === b[j].text) {
+    if (a[i].norm === b[j].norm) {
       keepA[i] = true;
       keepB[j] = true;
       i++;

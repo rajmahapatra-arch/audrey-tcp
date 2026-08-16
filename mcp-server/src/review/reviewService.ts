@@ -278,6 +278,11 @@ const SYSTEM_PROMPT = [
   'Hard rules:',
   '- `original` MUST be copied verbatim from the cited paragraph. Do not normalise',
   '  quotes, whitespace, or punctuation. Non-verbatim edits are discarded.',
+  "- In `revised`, keep the document's existing typography: if the paragraph uses",
+  '  curly quotes or long dashes, use the same characters in your rewrite.',
+  '- `rationale` speaks as Audrey, in plain prose. Never sign it, never invent a',
+  '  reviewer name or persona ("Mike C:", "JD—", etc.), never prefix it with an',
+  '  attribution of any kind.',
   '- Keep each edit to the smallest span that reads naturally — a clause or a',
   '  sentence, never a whole paragraph.',
   '- `revised` must be a drop-in replacement for `original`.',
@@ -540,6 +545,15 @@ export async function runReview(input: ReviewInput): Promise<ReviewResult> {
     const tightened = tightenPair(s.original, s.revised);
     if (tightened.unchanged) continue;
     for (const pair of tightened.edits) {
+      // Post-normalisation this should never fire; if it does, the diff
+      // failed to fan a wide suggestion and the client will refuse spans
+      // >250 chars — surface it loudly rather than silently.
+      if (pair.old_text.length > 250) {
+        console.warn(
+          `[audrey-review] MEGA-PAIR emitted (${pair.old_text.length} chars) for ` +
+            `paragraph ${s.paragraph_id} — tighten fan-out failed; investigate`
+        );
+      }
       edits.push({
         id: `rv_${edits.length + 1}_${randomUUID().slice(0, 4)}`,
         bookmark: s.paragraph_id,
