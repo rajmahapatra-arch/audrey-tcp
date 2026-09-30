@@ -1,4 +1,8 @@
-# Keep the Supabase free-tier project from pausing on inactivity.
+# MONITOR (not the keep-alive): fails loudly when the production API
+# serves an empty dataset. The actual keep-alive is an in-process
+# daily ping inside the TCP server (mcp-server/src/db/keepalive.ts) —
+# GitHub cron proved days-late on this quiet repo in July 2026, which
+# is tolerable for an alert and unacceptable for the pause deadline.
 #
 # Supabase pauses free projects after ~7 days without activity (and
 # eventually deletes contents if never restored — we got the warning
@@ -11,7 +15,7 @@
 name: db-keepalive
 on:
   schedule:
-    - cron: '17 6 */3 * *'   # every 3rd day, 06:17 UTC
+    - cron: '17 6 * * *'   # daily; GH cron drifts on quiet repos, daily absorbs it
   workflow_dispatch: {}
 
 jobs:

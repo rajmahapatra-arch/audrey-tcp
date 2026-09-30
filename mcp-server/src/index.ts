@@ -78,6 +78,7 @@ import {
   handleAddMatterNote,
 } from './tools/addMatterNote.js';
 import { isSupabaseConfigured } from './db/supabase.js';
+import { startDbKeepalive } from './db/keepalive.js';
 import { auditAsync } from './audit.js';
 import { resolveFirmId } from './auth.js';
 import { verifyAccessToken } from './oauth/jwt.js';
@@ -523,6 +524,10 @@ try {
     );
   } else {
     logger.info('Supabase configured — repositories will read live data.');
+    // Daily in-process ping so the free-tier project never pauses on
+    // inactivity (see db/keepalive.ts for why this lives here and not
+    // in an external cron).
+    startDbKeepalive(logger);
   }
 } catch (err) {
   logger.error(err, 'failed to start server');
