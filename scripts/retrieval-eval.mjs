@@ -73,11 +73,19 @@ async function sb(env, path) {
 async function fetchCorpus(env) {
   // Everything a working-record/notes search could target. Chunks
   // included: they're what search_matter_text actually serves.
-  const rows = await sb(
-    env,
-    `matter_memory?select=id,matter_id,memory_type,status,content&order=created_at.asc&limit=5000`
-  );
-  return rows.filter((r) => r.content && r.content.trim().length > 0);
+  // Paginated: PostgREST caps a single response at max-rows (1000).
+  const all = [];
+  for (let from = 0; ; from += 1000) {
+    const r = await fetch(
+      `${env.url}/rest/v1/matter_memory?select=id,matter_id,memory_type,status,content&order=created_at.asc`,
+      { headers: { apikey: env.key, Authorization: `Bearer ${env.key}`, Range: `${from}-${from + 999}` } }
+    );
+    if (!r.ok && r.status !== 416) throw new Error(`supabase ${r.status}: ${(await r.text()).slice(0, 200)}`);
+    const page = r.status === 416 ? [] : await r.json();
+    all.push(...page);
+    if (page.length < 1000) break;
+  }
+  return all.filter((r) => r.content && r.content.trim().length > 0);
 }
 
 async function embedAll(env, model, texts, dims) {
