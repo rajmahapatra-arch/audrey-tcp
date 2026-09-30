@@ -49,8 +49,10 @@ function loadEnv() {
         )
       ),
   ];
+  const isPlaceholder = (v) => /your-project|your-key|your-openai|changeme|<.*>/i.test(v);
   const pick = (...names) => {
-    for (const src of sources) for (const n of names) if (src[n]) return src[n];
+    for (const src of sources)
+      for (const n of names) if (src[n] && !isPlaceholder(src[n])) return src[n];
     return null;
   };
   return {
