@@ -173,6 +173,39 @@ two-account runbook extends to both (flagged in acceptance criteria).
   then retire; `add_position` requires the user-act flag when it
   would settle or supersede, else it proposes.
 
+## 6a. Embedding posture — folded into Stage 1 (Raj, 2026-09-30)
+
+Stress-test outcome: embeddings are an optional accelerator, never a
+gate. Two additions to Stage 1 scope:
+
+**AUD-606 — Decouple storage from embedding (P0).**
+- `insertChunks` stores ALL chunks; `embedding` is nullable. A chunk
+  whose embedding fails is stored un-embedded, never dropped (today it
+  is silently discarded — verified bug class).
+- Missing `OPENAI_API_KEY` = loud warn + degraded mode, not boot
+  refusal. Capture paths (notes, working record, chunks) never block
+  or fail on OpenAI.
+- **Re-embed sweep**: the daily in-process keep-alive tick
+  (db/keepalive.ts) additionally embeds up to N (default 200) rows
+  with `embedding IS NULL`, oldest first, and logs the count. Skipped
+  chunks at intake log at WARN with the job id.
+
+**AUD-607 — Retrieval eval before pilot (P1).**
+- Harness: `scripts/retrieval-eval.mjs` (separate PR). ~20 real
+  questions with ground-truth rows over the live corpus; compares
+  Postgres websearch FTS vs text-embedding-3-large@1536 vs
+  text-embedding-3-small@1536 (each model embeds both corpus and
+  query — no mixed spaces). Metrics: hit@1/3/8 + MRR.
+- Decision rule: semantic must beat lexical materially at hit@3 to
+  stay load-bearing anywhere; the model choice follows the data;
+  voyage-law-2 is the upgrade path if semantic wins.
+
+**AUD-615 (retrieval rules) is amended:** working-record relevance =
+recency + kind + lexical (websearch FTS) as load-bearing signals;
+vector similarity is an additive re-ranker used only when an
+embedding exists. Settled decisions and conflict detection use no
+embeddings at all (structured, always-in-context).
+
 ## 7. Sign-off checklist (Raj)
 
 1. Option B (new `matter_decisions` + position linkage + chain design
@@ -182,4 +215,6 @@ two-account runbook extends to both (flagged in acceptance criteria).
 3. `source_document_id` on decisions (§4) — small addition beyond the
    spec, aligning with the "conversation against each document"
    ruling; keep or strike.
-4. Then I finalise migration 014 and open the Stage 1 build.
+4. Embedding posture in §6a (AUD-606/607, AUD-615 amendment) —
+   approve or redirect.
+5. Then I finalise migration 014 and open the Stage 1 build.
