@@ -1,0 +1,7 @@
+[
+  {
+    "question": "What did we agree about the liability cap with Example Corp?",
+    "expected": ["00000000-0000-0000-0000-000000000000"],
+    "_comment": "FORMAT EXAMPLE ONLY. Real question files contain matter text and row ids — keep them OUT of the repo (scratchpad or local eval/ paths). 'expected' lists every matter_memory row id that counts as a correct top hit; generate candidates with: node scripts/retrieval-eval.mjs sample --out <local-path>"
+  }
+]
