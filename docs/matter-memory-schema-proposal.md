@@ -200,11 +200,29 @@ gate. Two additions to Stage 1 scope:
   stay load-bearing anywhere; the model choice follows the data;
   voyage-law-2 is the upgrade path if semantic wins.
 
-**AUD-615 (retrieval rules) is amended:** working-record relevance =
-recency + kind + lexical (websearch FTS) as load-bearing signals;
-vector similarity is an additive re-ranker used only when an
-embedding exists. Settled decisions and conflict detection use no
-embeddings at all (structured, always-in-context).
+**AUD-607 first run — 2026-09-30, decision made by the data.**
+16 ground-truth questions (Sisi-authored paraphrases over the live
+corpus; Raj's 6 real questions still invited to harden n):
+
+| retriever | hit@1 | hit@3 | hit@8 | MRR |
+|---|---|---|---|---|
+| websearch FTS (lexical) | 0.06 | 0.06 | 0.06 | 0.06 |
+| 3-large @1536 (current) | 0.81 | 0.88 | 1.00 | 0.87 |
+| 3-small @1536 | 0.88 | 0.88 | 1.00 | 0.90 |
+
+Per the pre-registered rule, **semantic stays load-bearing for
+relevance retrieval** — naive lexical collapses on paraphrase
+phrasing (websearch ANDs all terms), which is how lawyers actually
+ask. Consequences: (a) the earlier lexical-first amendment to AUD-615
+is WITHDRAWN — vector similarity remains the primary relevance
+signal, with recency/kind as filters and lexical kept for exact-term
+lookups; (b) settled decisions and conflict detection still use no
+embeddings (structured, always-in-context); (c) model: switch to
+**text-embedding-3-small @1536** — equal-or-better at 6.5x cheaper
+(fold into AUD-606's sweep: new embeds use 3-small; existing 3-large
+vectors coexist via the embedding_model column until swept). AUD-606
+(storage never gated on embedding + re-embed sweep) is unaffected —
+that was integrity, not value, and stands in full.
 
 ## 7. Sign-off checklist (Raj)
 
