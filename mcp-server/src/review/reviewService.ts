@@ -31,7 +31,8 @@ import { auditAsync } from '../audit.js';
 import type { Matter } from '../types.js';
 
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
-const MODEL = 'claude-sonnet-4-5-20250929'; // mirrors extractor.ts; adjust to current at deploy time
+import { GENERATION_MODEL } from '../models.js';
+const MODEL = GENERATION_MODEL;
 const MAX_TOKENS = 8192;
 
 const DEFAULT_MAX_EDITS = 12;

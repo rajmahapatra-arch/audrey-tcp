@@ -23,7 +23,8 @@
  */
 
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
-const MODEL = 'claude-sonnet-4-5-20250929'; // adjust to current at deploy time
+import { GENERATION_MODEL } from '../models.js';
+const MODEL = GENERATION_MODEL;
 const MAX_TOKENS = 4096;
 
 function getApiKey(): string {
