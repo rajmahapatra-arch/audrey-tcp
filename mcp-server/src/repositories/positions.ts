@@ -120,7 +120,10 @@ export const positionsRepository = {
     filter?: { status?: PositionStatus }
   ): Promise<Position[]> {
     if (!isSupabaseConfigured()) return [];
-    const supabase = getSupabase();
+    // Service client: positions RLS gates on a session GUC PostgREST never
+    // sets, so anon reads return zero rows (field bug: moat write-only
+    // 2026-05-15..09-30). Firm scoping stays explicit via .eq(firm_id).
+    const supabase = getServiceClient() ?? getSupabase();
     if (!supabase) return [];
 
     let query = supabase
@@ -151,7 +154,10 @@ export const positionsRepository = {
     filter?: { clauseType?: string }
   ): Promise<Position[]> {
     if (!isSupabaseConfigured()) return [];
-    const supabase = getSupabase();
+    // Service client: positions RLS gates on a session GUC PostgREST never
+    // sets, so anon reads return zero rows (field bug: moat write-only
+    // 2026-05-15..09-30). Firm scoping stays explicit via .eq(firm_id).
+    const supabase = getServiceClient() ?? getSupabase();
     if (!supabase) return [];
 
     let query = supabase
@@ -182,7 +188,10 @@ export const positionsRepository = {
     filter?: { clauseType?: string }
   ): Promise<Position[]> {
     if (!isSupabaseConfigured()) return [];
-    const supabase = getSupabase();
+    // Service client: positions RLS gates on a session GUC PostgREST never
+    // sets, so anon reads return zero rows (field bug: moat write-only
+    // 2026-05-15..09-30). Firm scoping stays explicit via .eq(firm_id).
+    const supabase = getServiceClient() ?? getSupabase();
     if (!supabase) return [];
 
     let query = supabase
