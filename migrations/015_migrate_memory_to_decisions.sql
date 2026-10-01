@@ -16,9 +16,16 @@
 --   promoted_to IS NULL guard keeps re-runs no-ops.
 --   Dry-run measured 2026-10-01: 240 candidates -> 169 decisions.
 
--- 0. Backfill firm_id on rows the legacy backend wrote without it
---    (it never stamps firm_id; migration 006's backfill predates
---    them). Also fixes their invisibility to firm-scoped search.
+-- 0a. Tag legacy-created MATTERS (the legacy backend stamps firm_id on
+--     nothing): 5 matters created Jun-Aug 2026 were firm_id NULL and
+--     therefore invisible to every firm-scoped connector tool.
+--     Single-firm era: hardcoded to the only firm in firm_users.
+UPDATE matters
+SET firm_id = '715b66f5-f7fb-4abe-b4f6-f5676c0117cd'
+WHERE firm_id IS NULL;
+
+-- 0b. Backfill memory rows from their (now-tagged) parent matter
+--     (also fixes their invisibility to firm-scoped search):
 UPDATE matter_memory mm
 SET firm_id = m.firm_id
 FROM matters m
@@ -29,15 +36,14 @@ WITH keepers AS (
   -- matters); migrated decisions carry user_id NULL with attribution
   -- via source_tool='migration'.
   SELECT DISTINCT ON (mm.matter_id, btrim(mm.content))
-         mm.id, COALESCE(mm.firm_id, m.firm_id) AS firm_id,
-         mm.matter_id, mm.content,
+         mm.id, mm.firm_id, mm.matter_id, mm.content,
          mm.source_document_id, mm.created_at,
          gen_random_uuid() AS new_id
   FROM matter_memory mm
-  JOIN matters m ON m.id = mm.matter_id
   WHERE mm.memory_type = 'decision'
     AND mm.status = 'endorsed'
     AND mm.promoted_to IS NULL
+    AND mm.firm_id IS NOT NULL
   ORDER BY mm.matter_id, btrim(mm.content), mm.created_at ASC
 ),
 ins AS (
