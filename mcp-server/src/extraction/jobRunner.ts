@@ -189,7 +189,23 @@ async function runOneJob(db: SupabaseClient, job: JobRow): Promise<JobResult> {
     // 4. Write chunks to matter_memory (only those with successful embeddings)
     const matterIdForWrite = (doc.matter_id as string | null) ?? job.matter_id;
     let chunksEmbedded = 0;
+    // Re-run guard: a document re-extraction (model upgrades, prompt
+    // tuning) must not duplicate its chunk rows. Positions supersede
+    // cleanly (insertExtracted); chunks would double, so skip the
+    // chunk write when any already exist for this document.
+    let chunksAlreadyStored = false;
     if (matterIdForWrite && chunks.length > 0) {
+      const { count } = await db
+        .from('matter_memory')
+        .select('id', { count: 'exact', head: true })
+        .eq('source_document_id', doc.id as string)
+        .eq('memory_type', 'chunk');
+      chunksAlreadyStored = (count ?? 0) > 0;
+      if (chunksAlreadyStored) {
+        console.log(`[audrey-jobs] chunks already stored for doc ${doc.id} (${count}) — skipping chunk write, re-extracting positions only`);
+      }
+    }
+    if (matterIdForWrite && chunks.length > 0 && !chunksAlreadyStored) {
       const writeResult = await matterMemoryRepository.insertChunks({
         firmId: doc.firm_id as string,
         matterId: matterIdForWrite,
