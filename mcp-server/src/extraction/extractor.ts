@@ -223,8 +223,19 @@ export async function extractPositions(
       max_tokens: MAX_TOKENS,
       system: SYSTEM_PROMPT,
       tools: [REPORT_POSITIONS_TOOL],
-      tool_choice: { type: 'tool', name: 'report_positions' },
-      messages: [{ role: 'user', content: userMessage }],
+      // Claude 5 family rejects forced tool_choice ('tool'/'any') —
+      // 'auto' + a hard instruction; the parser already handles the
+      // missing-tool_use case as a counted failure. TODO: migrate to
+      // structured outputs (the modern replacement for forced tools).
+      tool_choice: { type: 'auto' },
+      messages: [
+        {
+          role: 'user',
+          content:
+            userMessage +
+            '\n\nYou MUST respond by calling the report_positions tool — never with plain text.',
+        },
+      ],
     }),
   });
 

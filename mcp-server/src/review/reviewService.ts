@@ -434,9 +434,18 @@ async function requestSuggestions(
       max_tokens: MAX_TOKENS,
       system: SYSTEM_PROMPT,
       tools: [reportEditsTool(maxEdits)],
-      tool_choice: { type: 'tool', name: 'report_edits' },
+      // Claude 5 family rejects forced tool_choice ('tool'/'any') —
+      // 'auto' + a hard instruction; the parser already handles the
+      // missing-tool_use case as a counted failure. TODO: migrate to
+      // structured outputs (the modern replacement for forced tools).
+      tool_choice: { type: 'auto' },
       messages: [
-        { role: 'user', content: buildUserContent(input, matter, positions, maxEdits) },
+        {
+          role: 'user',
+          content:
+            buildUserContent(input, matter, positions, maxEdits) +
+            '\n\nYou MUST respond by calling the report_edits tool — never with plain text.',
+        },
       ],
     }),
   });

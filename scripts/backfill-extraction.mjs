@@ -12,7 +12,6 @@
  *      OPENAI_API_KEY (inject before running).
  * Runs against the BUILT dist — run `npm run build` in mcp-server first.
  */
-import { createClient } from '@supabase/supabase-js';
 import { queueExtractionJob, runPendingJobs } from '../mcp-server/dist/extraction/jobRunner.js';
 
 const args = process.argv.slice(2);
@@ -20,20 +19,18 @@ const opt = (n, d) => { const i = args.indexOf(`--${n}`); return i > -1 ? args[i
 const limit = Number(opt('limit', 1000));
 const only = opt('docs', null)?.split(',');
 
-const db = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
-
-const { data: docs, error } = await db
-  .from('documents')
-  .select('id, name, matter_id, firm_id')
-  .not('matter_id', 'is', null)
-  .order('created_at', { ascending: true })
-  .limit(limit);
-if (error) { console.error('doc query failed:', error.message); process.exit(1); }
+const KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const resp = await fetch(
+  `${process.env.SUPABASE_URL}/rest/v1/documents?select=id,name,matter_id,firm_id&matter_id=not.is.null&order=added_at.asc&limit=${limit}`,
+  { headers: { apikey: KEY, Authorization: `Bearer ${KEY}` } }
+);
+if (!resp.ok) { console.error('doc query failed:', resp.status, await resp.text()); process.exit(1); }
+const docs = await resp.json();
 
 const targets = only ? docs.filter((d) => only.includes(d.id)) : docs;
 console.log(`backfill: queueing ${targets.length} documents`);
 for (const d of targets) {
-  const { jobId } = await queueExtractionJob({ documentId: d.id, firmId: d.firm_id, requestedBy: 'backfill-2026-10' });
+  const { jobId } = await queueExtractionJob({ documentId: d.id, firmId: d.firm_id, triggeredBy: 'scheduled_backfill' });
   console.log(`  queued ${jobId.slice(0, 8)}  ${d.name}`);
 }
 
