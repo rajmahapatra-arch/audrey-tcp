@@ -35,11 +35,14 @@ ins AS (
     (id, firm_id, matter_id, decision, reasons,
      source_document_id, status, source_tool, proposed_at,
      settled_via, settled_at, created_at)
-  SELECT new_id, firm_id, matter_id, content,
+  -- matter_memory.source_document_id is TEXT (legacy); resolve it to
+  -- a real documents.id or NULL so the uuid FK can never violate.
+  SELECT k.new_id, k.firm_id, k.matter_id, k.content,
          ARRAY['reasons not recorded'],
-         source_document_id, 'settled', 'migration', created_at,
-         'migration', created_at, created_at
-  FROM keepers
+         (SELECT d.id FROM documents d WHERE d.id::text = k.source_document_id),
+         'settled', 'migration', k.created_at,
+         'migration', k.created_at, k.created_at
+  FROM keepers k
   RETURNING id
 )
 UPDATE matter_memory mm
