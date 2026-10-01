@@ -63,19 +63,26 @@ export const matterMemoryRepository = {
     const db = getServiceClient();
     if (!db) throw new Error('matter_memory store unavailable');
 
-    const validChunks = args.chunks.filter((c) => c.embedding !== null);
-    const skipped = args.chunks.length - validChunks.length;
+    // AUD-606: storage is NEVER gated on embedding success. Chunks
+    // whose embedding failed are stored unembedded (loud, not silent)
+    // and picked up by the daily re-embed sweep.
+    const skipped = args.chunks.filter((c) => c.embedding === null).length;
+    if (skipped > 0) {
+      console.warn(
+        `[audrey-mm] ${skipped}/${args.chunks.length} chunks stored UNEMBEDDED ` +
+          '(embedding failed/unavailable); the daily sweep will embed them.'
+      );
+    }
+    if (args.chunks.length === 0) return { inserted: 0, skipped: 0 };
 
-    if (validChunks.length === 0) return { inserted: 0, skipped };
-
-    const rows = validChunks.map((c) => ({
+    const rows = args.chunks.map((c) => ({
       firm_id: args.firmId,
       matter_id: args.matterId,
       memory_type: 'chunk',
       content: c.text,
       source_document_id: args.sourceDocumentId,
       embedding: c.embedding,
-      embedding_model: args.embeddingModel,
+      embedding_model: c.embedding ? args.embeddingModel : null,
       status: 'active',
     }));
 
