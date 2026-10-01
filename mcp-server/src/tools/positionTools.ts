@@ -58,8 +58,12 @@ const MatterIdInput = z.object({ matter_id: z.string().uuid() });
 export async function handleGetOpenPositions(args: unknown, firmId: string) {
   const parsed = MatterIdInput.safeParse(args);
   if (!parsed.success) return text({ error: parsed.error.message });
+  // "Open" in the lawyer sense = still in play. The extractor stamps
+  // under-negotiation asks 'proposed' and almost never literal 'open'
+  // (field data 2026-10-01: 3 open vs 29 proposed vs 110 settled), so
+  // filtering status='open' alone returned ~nothing forever.
   const rows = await positionsRepository.listActive(firmId, parsed.data.matter_id, {
-    status: 'open',
+    statuses: ['open', 'proposed'],
   });
   return text({
     matter_id: parsed.data.matter_id,
