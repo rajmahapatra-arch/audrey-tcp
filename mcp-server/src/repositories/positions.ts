@@ -117,7 +117,7 @@ export const positionsRepository = {
   async listActive(
     firmId: string,
     matterId: string,
-    filter?: { status?: PositionStatus }
+    filter?: { status?: PositionStatus; statuses?: PositionStatus[] }
   ): Promise<Position[]> {
     if (!isSupabaseConfigured()) return [];
     // Service client: positions RLS gates on a session GUC PostgREST never
@@ -133,7 +133,8 @@ export const positionsRepository = {
       .eq('matter_id', matterId)
       .is('superseded_by', null)
       .order('clause_type', { ascending: true });
-    if (filter?.status) query = query.eq('status', filter.status);
+    if (filter?.statuses?.length) query = query.in('status', filter.statuses);
+    else if (filter?.status) query = query.eq('status', filter.status);
 
     const { data, error } = await query;
     if (error) {
