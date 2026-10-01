@@ -17,8 +17,11 @@
 --   Dry-run measured 2026-10-01: 240 candidates -> 169 decisions.
 
 WITH keepers AS (
+  -- NOTE: matter_memory has no user_id column (the dual-tag lives on
+  -- matters); migrated decisions carry user_id NULL with attribution
+  -- via source_tool='migration'.
   SELECT DISTINCT ON (matter_id, btrim(content))
-         id, firm_id, matter_id, user_id, content,
+         id, firm_id, matter_id, content,
          source_document_id, created_at,
          gen_random_uuid() AS new_id
   FROM matter_memory
@@ -29,10 +32,10 @@ WITH keepers AS (
 ),
 ins AS (
   INSERT INTO matter_decisions
-    (id, firm_id, matter_id, user_id, decision, reasons,
+    (id, firm_id, matter_id, decision, reasons,
      source_document_id, status, source_tool, proposed_at,
      settled_via, settled_at, created_at)
-  SELECT new_id, firm_id, matter_id, user_id, content,
+  SELECT new_id, firm_id, matter_id, content,
          ARRAY['reasons not recorded'],
          source_document_id, 'settled', 'migration', created_at,
          'migration', created_at, created_at
