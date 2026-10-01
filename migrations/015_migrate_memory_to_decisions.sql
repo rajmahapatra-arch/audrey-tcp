@@ -16,19 +16,29 @@
 --   promoted_to IS NULL guard keeps re-runs no-ops.
 --   Dry-run measured 2026-10-01: 240 candidates -> 169 decisions.
 
+-- 0. Backfill firm_id on rows the legacy backend wrote without it
+--    (it never stamps firm_id; migration 006's backfill predates
+--    them). Also fixes their invisibility to firm-scoped search.
+UPDATE matter_memory mm
+SET firm_id = m.firm_id
+FROM matters m
+WHERE mm.matter_id = m.id AND mm.firm_id IS NULL;
+
 WITH keepers AS (
   -- NOTE: matter_memory has no user_id column (the dual-tag lives on
   -- matters); migrated decisions carry user_id NULL with attribution
   -- via source_tool='migration'.
-  SELECT DISTINCT ON (matter_id, btrim(content))
-         id, firm_id, matter_id, content,
-         source_document_id, created_at,
+  SELECT DISTINCT ON (mm.matter_id, btrim(mm.content))
+         mm.id, COALESCE(mm.firm_id, m.firm_id) AS firm_id,
+         mm.matter_id, mm.content,
+         mm.source_document_id, mm.created_at,
          gen_random_uuid() AS new_id
-  FROM matter_memory
-  WHERE memory_type = 'decision'
-    AND status = 'endorsed'
-    AND promoted_to IS NULL
-  ORDER BY matter_id, btrim(content), created_at ASC
+  FROM matter_memory mm
+  JOIN matters m ON m.id = mm.matter_id
+  WHERE mm.memory_type = 'decision'
+    AND mm.status = 'endorsed'
+    AND mm.promoted_to IS NULL
+  ORDER BY mm.matter_id, btrim(mm.content), mm.created_at ASC
 ),
 ins AS (
   INSERT INTO matter_decisions
