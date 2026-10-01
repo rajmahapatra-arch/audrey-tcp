@@ -4,24 +4,28 @@
 -- dry-run report (node scripts/aud605-dry-run.mjs) per the Stage 1
 -- gate in the Matter Memory spec §8.
 --
--- Mapping (signed off in the schema proposal §5):
+-- Mapping (signed off in the schema proposal §5, amended 2026-10-01
+-- after the dry run surfaced ~30% duplicate rows from legacy
+-- chat-era saves):
 --   matter_memory rows with memory_type='decision' AND status='endorsed'
---   → settled matter_decisions with reasons = ['reasons not recorded'],
---     source_tool/settled_via = 'migration', timestamps from the
---     original row. The original row is RETAINED and linked via
---     promoted_to — nothing is deleted.
---   'preference'/'context'/'term' rows stay in the working record.
---
--- Idempotent: promoted_to IS NULL guard means a re-run moves nothing
--- already migrated.
+--   are DEDUPLICATED on (matter_id, trimmed content) — the earliest
+--   copy becomes one settled matter_decision (reasons = ['reasons not
+--   recorded'], source_tool/settled_via = 'migration', timestamps
+--   from that earliest row). EVERY copy, duplicate or not, gets
+--   promoted_to set to that decision — nothing is deleted, and the
+--   promoted_to IS NULL guard keeps re-runs no-ops.
+--   Dry-run measured 2026-10-01: 240 candidates -> 169 decisions.
 
-WITH src AS (
-  SELECT id, firm_id, matter_id, user_id, content, source_document_id,
-         created_at, gen_random_uuid() AS new_id
+WITH keepers AS (
+  SELECT DISTINCT ON (matter_id, btrim(content))
+         id, firm_id, matter_id, user_id, content,
+         source_document_id, created_at,
+         gen_random_uuid() AS new_id
   FROM matter_memory
   WHERE memory_type = 'decision'
     AND status = 'endorsed'
     AND promoted_to IS NULL
+  ORDER BY matter_id, btrim(content), created_at ASC
 ),
 ins AS (
   INSERT INTO matter_decisions
@@ -32,16 +36,21 @@ ins AS (
          ARRAY['reasons not recorded'],
          source_document_id, 'settled', 'migration', created_at,
          'migration', created_at, created_at
-  FROM src
+  FROM keepers
   RETURNING id
 )
 UPDATE matter_memory mm
-SET promoted_to = src.new_id
-FROM src
-WHERE mm.id = src.id;
+SET promoted_to = k.new_id
+FROM keepers k
+WHERE mm.memory_type = 'decision'
+  AND mm.status = 'endorsed'
+  AND mm.promoted_to IS NULL
+  AND mm.matter_id = k.matter_id
+  AND btrim(mm.content) = btrim(k.content);
 
 -- Verification (run separately):
 --   SELECT count(*) FROM matter_decisions WHERE source_tool = 'migration';
+--     -- expect ~169
 --   SELECT count(*) FROM matter_memory
 --     WHERE memory_type='decision' AND status='endorsed' AND promoted_to IS NULL;
---   -- second count should be 0 after migration.
+--     -- expect 0
