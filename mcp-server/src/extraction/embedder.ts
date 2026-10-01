@@ -26,20 +26,25 @@
 import { approxTokens } from './chunker.js';
 
 const OPENAI_EMBEDDINGS_URL = 'https://api.openai.com/v1/embeddings';
-const MODEL = 'text-embedding-3-large';
+// 3-small per AUD-607 eval (2026-09-30): equal-or-better retrieval at
+// 6.5x cheaper (MRR 0.90 vs 0.87 on the live corpus). The keepalive
+// sweep re-embeds legacy 3-large rows; embedding_model tracks which.
+const MODEL = 'text-embedding-3-small';
 const DIMENSIONS = 1536;
 const MAX_BATCH_SIZE = 100;       // OpenAI allows up to 2048 but smaller batches retry better
 const MAX_RETRIES = 3;
 
-function getApiKey(): string {
+let warnedMissingKey = false;
+function getApiKey(): string | null {
   const key = process.env.OPENAI_API_KEY;
-  if (!key) {
-    throw new Error(
-      'OPENAI_API_KEY is required for the extraction pipeline. ' +
-        'Set it in Railway env vars before running document intake.'
+  if (!key && !warnedMissingKey) {
+    warnedMissingKey = true;
+    console.warn(
+      '[audrey-embed] OPENAI_API_KEY unset — content is stored UNEMBEDDED ' +
+        '(AUD-606 degraded mode); the daily sweep embeds it once the key exists.'
     );
   }
-  return key;
+  return key ?? null;
 }
 
 export interface EmbeddingResult {
@@ -76,6 +81,13 @@ export async function embedBatch(texts: string[]): Promise<EmbeddingResult[]> {
 
 async function embedSingleBatch(texts: string[]): Promise<EmbeddingResult[]> {
   const apiKey = getApiKey();
+  if (!apiKey) {
+    return texts.map((t) => ({
+      embedding: null,
+      approxTokens: approxTokens(t),
+      error: 'OPENAI_API_KEY unset',
+    }));
+  }
 
   let lastError: string | null = null;
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
