@@ -291,10 +291,19 @@ async function markCompleted(
   status: 'completed' | 'skipped' = 'completed'
 ): Promise<JobResult> {
   const durationMs = Date.now() - started;
+  // 008's CHECK allows pending/running/completed/failed/cancelled —
+  // writing 'skipped' violates it and strands the row as 'running'
+  // forever (field-spotted during the S2a sweep build). Store short-
+  // doc skips as 'completed' with an explanatory error_message; the
+  // in-process JobResult keeps the honest 'skipped'.
+  const dbStatus = status === 'skipped' ? 'completed' : status;
   const { error } = await db
     .from('extraction_jobs')
     .update({
-      status,
+      status: dbStatus,
+      ...(status === 'skipped'
+        ? { error_message: 'skipped: content below extraction threshold' }
+        : {}),
       completed_at: new Date().toISOString(),
       positions_extracted: results.positions_extracted,
       chunks_embedded: results.chunks_embedded,
