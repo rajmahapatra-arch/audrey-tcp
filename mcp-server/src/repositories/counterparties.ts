@@ -1,41 +1,77 @@
 /**
  * Counterparties repository — cross-matter intelligence.
  *
- * This is the repository that proves the architecture scales: it does
- * not have its own root table in Stage A; instead it synthesises
- * counterparty history from the matters repository. Later (migration
- * 006) it gets a dedicated `counterparty_observations` table that's
- * populated by the position-extraction pipeline.
+ * Stage 2a: history is built from REAL extracted position rows
+ * (positions table via positionsRepository.listByCounterparty),
+ * including superseded rows so negotiation evolution is visible —
+ * each entry carries a `superseded` flag so live positions are
+ * clearly distinguishable from history. Matter-level context (names,
+ * stages, count) still comes from the matters repository.
+ *
+ * Fallbacks:
+ *   - Stub mode (no Supabase): synthesise from the stub matters
+ *     fixture, exactly as Stage A did.
+ *   - Live mode with zero position rows (extraction backlog not yet
+ *     swept): fall back to the Stage A matter-metadata synthesis so
+ *     the tool degrades to the old thin-but-honest behaviour.
  *
  * Architecture discipline:
  *   - Tool handlers go through this repository, never through other
- *     repositories directly. That way when we cut over to the
- *     observations table, the only change is here.
+ *     repositories directly. Cross-repo reads (matters, positions)
+ *     happen HERE, so when the dedicated `counterparty_observations`
+ *     table lands the only change is in this file.
  */
 
 import { mattersRepository } from './matters.js';
-import { getSupabase, isSupabaseConfigured } from '../db/supabase.js';
+import { positionsRepository, type Position } from './positions.js';
+import { isSupabaseConfigured } from '../db/supabase.js';
+import type { Matter } from '../types.js';
 
 // ============================================================
-// Output type
+// Output types — compact: this payload travels through MCP results
 // ============================================================
 
-export interface CounterpartyClausePosition {
-  clause_type: string;
-  matter_id: string;
-  matter_stage: string;
-  // `unknown` mirrors Position.currentValue. JSON-serialised at the tool
-  // boundary; matching the domain type avoids lossy coercion here.
+export interface CounterpartyPositionEntry {
+  /** Matter name when resolvable, else the matter id (citable via `matters`). */
+  matter: string;
+  // `unknown` mirrors Position.value / Matter position currentValue.
+  // JSON-serialised at the tool boundary; no lossy coercion here.
   value: unknown;
-  status: 'open' | 'settled';
+  /** 'proposed' | 'open' | 'settled' | 'rejected' (positions table CHECK). */
+  status: string;
+  extracted_at: string;
+  /** true = historical row a later extraction/assertion replaced. */
+  superseded: boolean;
+  /** Free-text negotiation note (matter-synthesis fallback path only). */
   history?: string;
+}
+
+export interface CounterpartyMatterSummary {
+  id: string;
+  name: string | null;
+  stage: string;
 }
 
 export interface CounterpartyHistory {
   counterparty: string;
   matter_count: number;
-  positions_by_clause: Record<string, CounterpartyClausePosition[]>;
+  matters: CounterpartyMatterSummary[];
+  positions_by_clause: Record<string, CounterpartyPositionEntry[]>;
 }
+
+// ============================================================
+// Tuning
+// ============================================================
+
+/** Per-clause cap. Current rows always survive the cap ahead of superseded ones. */
+const MAX_ENTRIES_PER_CLAUSE = 8;
+
+/**
+ * Position rows can cite matters outside the recent-50 list the
+ * matters repository returns; those names are resolved one findById
+ * each. Bounded so a pathological corpus can't fan out.
+ */
+const MAX_NAME_LOOKUPS = 20;
 
 // ============================================================
 // Public API
@@ -43,12 +79,9 @@ export interface CounterpartyHistory {
 
 export const counterpartiesRepository = {
   /**
-   * Return everything the firm has observed about a counterparty: their
-   * positions, grouped by clause type, with matter citations.
-   *
-   * Stage A synthesises this from `matters.openPositions` /
-   * `settledPositions`. When migration 006 lands, this method swaps to
-   * a single SELECT against `counterparty_observations`.
+   * Return everything the firm has observed about a counterparty:
+   * their positions grouped by clause type (newest first, superseded
+   * history flagged), plus the matters involved for citation.
    */
   async getHistory(
     firmId: string,
@@ -61,67 +94,161 @@ export const counterpartiesRepository = {
       return synthesise(counterparty, matters, clauseType);
     }
 
-    // Live mode: same synthesis path, but matters come from Supabase.
-    // The list() call applies the counterparty filter (case-insensitive
-    // partial match on party name/id).
-    const supabase = getSupabase();
-    if (!supabase) {
-      return { counterparty, matter_count: 0, positions_by_clause: {} };
+    // Live mode: real position rows are the source of truth. Superseded
+    // rows are included so the per-clause view shows evolution.
+    let positions: Position[] = [];
+    try {
+      positions = await positionsRepository.listByCounterparty(firmId, counterparty, {
+        ...(clauseType ? { clauseType } : {}),
+        includeSuperseded: true,
+      });
+    } catch (err) {
+      // Degrade to matter synthesis rather than failing the tool call.
+      console.error(
+        '[audrey-mcp] counterparty positions read failed:',
+        err instanceof Error ? err.message : String(err)
+      );
     }
 
-    const matters = await mattersRepository.list(firmId, { counterparty });
-    return synthesise(counterparty, matters, clauseType);
+    // Matter context: names/stages for citations + involvement check.
+    let matters: Matter[] = [];
+    try {
+      matters = await mattersRepository.list(firmId, { counterparty });
+    } catch (err) {
+      console.error(
+        '[audrey-mcp] counterparty matters read failed:',
+        err instanceof Error ? err.message : String(err)
+      );
+    }
+
+    if (positions.length === 0) {
+      return synthesise(counterparty, matters, clauseType);
+    }
+
+    // Resolve matter names for the position rows. Most come free from
+    // the list() call; stragglers get a bounded findById each.
+    const matterInfo = new Map<string, { name: string | null; stage: string }>();
+    for (const m of matters) matterInfo.set(m.id, { name: m.matterName, stage: m.stage });
+    const unresolved = [...new Set(positions.map((p) => p.matterId))].filter(
+      (id) => !matterInfo.has(id)
+    );
+    for (const id of unresolved.slice(0, MAX_NAME_LOOKUPS)) {
+      try {
+        const m = await mattersRepository.findById(firmId, id);
+        if (m) matterInfo.set(m.id, { name: m.matterName, stage: m.stage });
+      } catch {
+        // Name stays unresolved; the entry falls back to the raw id.
+      }
+    }
+
+    // Group by clause type. Within a clause: current rows first, then
+    // superseded history, each newest-first, capped per clause.
+    const grouped = new Map<string, Position[]>();
+    for (const p of positions) {
+      const list = grouped.get(p.clauseType) ?? [];
+      list.push(p);
+      grouped.set(p.clauseType, list);
+    }
+
+    const byClause: Record<string, CounterpartyPositionEntry[]> = {};
+    for (const [clause, rows] of grouped) {
+      const newestFirst = [...rows].sort(
+        (a, b) => new Date(b.extractedAt).getTime() - new Date(a.extractedAt).getTime()
+      );
+      const current = newestFirst.filter((r) => r.supersededBy === null);
+      const replaced = newestFirst.filter((r) => r.supersededBy !== null);
+      byClause[clause] = [...current, ...replaced]
+        .slice(0, MAX_ENTRIES_PER_CLAUSE)
+        .map((r) => ({
+          matter: matterInfo.get(r.matterId)?.name ?? r.matterId,
+          value: r.value,
+          status: r.status,
+          extracted_at: r.extractedAt,
+          superseded: r.supersededBy !== null,
+        }));
+    }
+
+    // Matter summaries: matters whose parties name the counterparty,
+    // plus any matter a position row cites (party arrays on legacy
+    // rows are not always stamped).
+    const summaries: CounterpartyMatterSummary[] = [];
+    const seen = new Set<string>();
+    for (const m of matters) {
+      if (!involvesCounterparty(m, counterparty)) continue;
+      summaries.push({ id: m.id, name: m.matterName, stage: m.stage });
+      seen.add(m.id);
+    }
+    for (const p of positions) {
+      if (seen.has(p.matterId)) continue;
+      seen.add(p.matterId);
+      const info = matterInfo.get(p.matterId);
+      summaries.push({
+        id: p.matterId,
+        name: info?.name ?? null,
+        stage: info?.stage ?? 'unknown',
+      });
+    }
+
+    return {
+      counterparty,
+      matter_count: summaries.length,
+      matters: summaries,
+      positions_by_clause: byClause,
+    };
   },
 };
 
 // ============================================================
-// Internal: synthesis from matter positions
+// Internal: fallback synthesis from matter metadata
 // ============================================================
+
+function involvesCounterparty(matter: Matter, counterparty: string): boolean {
+  const needle = counterparty.toLowerCase();
+  return matter.parties.some(
+    (p) => p.kind === 'counterparty' && p.partyId.toLowerCase().includes(needle)
+  );
+}
 
 function synthesise(
   counterparty: string,
-  matters: Awaited<ReturnType<typeof mattersRepository.list>>,
+  matters: Matter[],
   clauseType?: string
 ): CounterpartyHistory {
-  const byClause: Record<string, CounterpartyClausePosition[]> = {};
+  const involved = matters.filter((m) => involvesCounterparty(m, counterparty));
+  const byClause: Record<string, CounterpartyPositionEntry[]> = {};
 
-  for (const matter of matters) {
-    // Skip if this matter doesn't actually involve the counterparty
-    // we asked about. (list() already filters by name, but defensive.)
-    const involved = matter.parties.some(
-      (p) =>
-        p.kind === 'counterparty' &&
-        p.partyId.toLowerCase().includes(counterparty.toLowerCase())
-    );
-    if (!involved) continue;
+  for (const matter of involved) {
+    const matterName = matter.matterName ?? matter.id;
 
     for (const p of matter.openPositions) {
       if (clauseType && p.clauseType !== clauseType) continue;
-      (byClause[p.clauseType] ??= []).push({
-        clause_type: p.clauseType,
-        matter_id: matter.id,
-        matter_stage: matter.stage,
+      const entry: CounterpartyPositionEntry = {
+        matter: matterName,
         value: p.currentValue,
         status: 'open',
-        history: p.history,
-      });
+        extracted_at: matter.openedAt,
+        superseded: false,
+      };
+      if (p.history) entry.history = p.history;
+      (byClause[p.clauseType] ??= []).push(entry);
     }
 
     for (const p of matter.settledPositions) {
       if (clauseType && p.clauseType !== clauseType) continue;
       (byClause[p.clauseType] ??= []).push({
-        clause_type: p.clauseType,
-        matter_id: matter.id,
-        matter_stage: matter.stage,
+        matter: matterName,
         value: p.currentValue,
         status: 'settled',
+        extracted_at: matter.openedAt,
+        superseded: false,
       });
     }
   }
 
   return {
     counterparty,
-    matter_count: matters.length,
+    matter_count: involved.length,
+    matters: involved.map((m) => ({ id: m.id, name: m.matterName, stage: m.stage })),
     positions_by_clause: byClause,
   };
 }

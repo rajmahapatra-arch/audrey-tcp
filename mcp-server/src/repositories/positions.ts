@@ -179,14 +179,17 @@ export const positionsRepository = {
 
   /**
    * Cross-matter view of positions involving a particular counterparty.
-   * Used by get_counterparty_history (Stage B will replace its current
-   * synthesis-from-matters path with this direct table read once
-   * positions are populated).
+   * Backs get_counterparty_history (Stage 2a: the tool's history is
+   * built from these rows instead of matter-metadata synthesis).
+   *
+   * Default: current rows only (superseded_by IS NULL). Pass
+   * `includeSuperseded: true` to also get replaced rows — callers then
+   * read `supersededBy` to tell live positions from history.
    */
   async listByCounterparty(
     firmId: string,
     counterparty: string,
-    filter?: { clauseType?: string }
+    filter?: { clauseType?: string; includeSuperseded?: boolean }
   ): Promise<Position[]> {
     if (!isSupabaseConfigured()) return [];
     // Service client: positions RLS gates on a session GUC PostgREST never
@@ -200,8 +203,9 @@ export const positionsRepository = {
       .select(SELECT_COLS)
       .eq('firm_id', firmId)
       .ilike('counterparty_name', `%${counterparty}%`)
-      .is('superseded_by', null)
-      .order('clause_type', { ascending: true });
+      .order('clause_type', { ascending: true })
+      .order('extracted_at', { ascending: false });
+    if (!filter?.includeSuperseded) query = query.is('superseded_by', null);
     if (filter?.clauseType) query = query.eq('clause_type', filter.clauseType);
 
     const { data, error } = await query;
