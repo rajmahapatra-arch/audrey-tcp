@@ -138,7 +138,7 @@ CREATE OR REPLACE FUNCTION match_document_passages(
   p_matter_id        uuid,
   p_query_embedding  vector(1536),
   p_match_count      int  DEFAULT 25,
-  p_embedding_model  text DEFAULT 'text-embedding-3-small'
+  p_embedding_model  text DEFAULT 'text-embedding-3-small@1536d'
 )
 RETURNS TABLE (
   id             uuid,
