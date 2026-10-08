@@ -65,7 +65,9 @@ Firm-stamped at write like everything else. RLS stays deny-all for anon.
 
 **PDF:**
 1. Text extraction (pdfjs) with light layout rules: heading detection by font size/weight, numbered-clause detection by pattern, page markers kept as `<!-- page 7 -->` for citation.
-2. **Fallback to Claude reading the PDF** when extraction is poor: scanned pages (very little text per page) or failed structure checks. Model `claude-sonnet-5-5`; one-off cost per document, roughly £0.05–0.40 for a 10–50 page contract. Capped at 100 pages per document without explicit confirmation.
+2. **Fallback to Claude reading the PDF, page by page where needed.** Quality is judged per page: pages with good extracted text keep it; only poor pages (scanned, garbled, broken layout) go to Claude. Model `claude-sonnet-5-5`.
+3. **No page cap — large documents are split automatically.** Pages sent to Claude go in batches of about 20 pages, with one page of overlap so a clause running across a batch boundary is captured whole. Each batch is told the last heading and clause number from the previous batch, so numbering stays continuous; the overlap is removed when the batches are stitched together. Smaller batches also transcribe more faithfully than one very large request. Batches run in parallel (limited concurrency) and a failed batch is retried on its own.
+4. **Cost:** roughly 1p per page sent to Claude (a 50-page scanned contract ≈ 50p; a 400-page scanned bundle ≈ £4). Only an estimated cost above £10 for a single document asks the user to confirm first; everything else runs automatically.
 
 **.txt / .md:** stored as-is (normalised line endings).
 
@@ -93,7 +95,7 @@ The originals of the 59 existing documents were never kept and cannot be recover
 - Produce a list of legacy documents for Raj; re-uploading any of them gains the original and proper Markdown (same name + matter → replaces the legacy row).
 
 ## 5. Acceptance tests
-Fixture set: Raj's real contracts (KBR JDA, KBR MCA, OGES MOU v2.1 and v3.3, a scanned PDF, a document with tables).
+Fixture set: Raj's real contracts (KBR JDA, KBR MCA, OGES MOU v2.1 and v3.3, a scanned PDF, a document with tables, and a scanned PDF over 100 pages to prove the batch stitching: no duplicated or missing text at batch boundaries, numbering continuous).
 1. **Clause-number fidelity:** for each .docx, compare the converter's numbers against Word's own (the pane reads each paragraph's displayed list number via Office.js). Target: 100% on the fixtures; any miss is a release blocker.
 2. **Round trip:** original downloadable via signed URL; hash matches.
 3. **Text fidelity:** converted text matches Word's visible text (excluding headers/footers) ≥ 99%.
@@ -116,6 +118,6 @@ Then: the comparison fix (≈0.5 day), then `create_client` / `create_matter` on
 ## 7. Decisions for Raj (sign-off checklist)
 1. **`documents` absorbs the Context Capture library** (single store). Recommended: yes.
 2. **`matter_memory` chunks become the only passage index.** Recommended: yes.
-3. **Claude fallback for poor PDFs**, at roughly £0.05–0.40 per document, capped at 100 pages. Recommended: yes.
+3. **Claude fallback for poor PDF pages**, about 1p per page, any length (auto-split into overlapping batches); confirmation only above an estimated £10 per document. Recommended: yes.
 4. **Legacy documents** keep their text and are flagged for optional re-upload. Recommended: yes.
 5. **Supabase Pro** before I1 ships to production. Required.
