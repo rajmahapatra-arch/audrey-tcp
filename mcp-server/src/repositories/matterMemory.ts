@@ -52,7 +52,9 @@ export const matterMemoryRepository = {
    */
   async insertChunks(args: {
     firmId: string;
-    matterId: string;
+    /** null for client-wide documents (then scope must be 'client') */
+    matterId: string | null;
+    scope?: 'matter' | 'client';
     sourceDocumentId: string;
     chunks: Array<{
       text: string;
@@ -78,6 +80,7 @@ export const matterMemoryRepository = {
     const rows = args.chunks.map((c) => ({
       firm_id: args.firmId,
       matter_id: args.matterId,
+      scope: args.scope ?? 'matter',
       memory_type: 'chunk',
       content: c.text,
       source_document_id: args.sourceDocumentId,

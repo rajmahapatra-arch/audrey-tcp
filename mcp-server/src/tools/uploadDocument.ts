@@ -11,8 +11,15 @@
  * Optional: doc_type, is_precedent (defaults to false)
  *
  * The handler:
- *   1. Inserts a new row in documents (service-role; bypasses RLS)
- *   2. Queues an extraction_jobs row pointing at the new document
+ *   1. Inserts a new row in documents (service-role; bypasses RLS) in the
+ *      ingestion shape (spec docs/document-ingestion-spec.md §3.3 "Text-only
+ *      input"): the text IS the original, so markdown = content,
+ *      conversion_method 'text', ingest_status 'converted', file_sha256 of
+ *      the text, firm stamped. Same text into the same matter twice = the
+ *      existing document (017's dedupe index). The text is also kept in
+ *      the private `documents` bucket as .md, best-effort.
+ *   2. Queues an extraction_jobs row pointing at the new document (drained
+ *      within ~2 minutes by the prompt-extraction timer)
  *   3. Returns the document_id, queued job_id, and a friendly note
  *
  * The actual extraction runs async via the job runner. Tools that
@@ -22,6 +29,7 @@
 
 import { z } from 'zod';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
+import { createHash } from 'node:crypto';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { queueExtractionJob } from '../extraction/jobRunner.js';
 
@@ -74,10 +82,11 @@ export const uploadDocumentTool: Tool = {
       content: {
         type: 'string',
         description:
-          'The document text. Paste the full content as you can see it in ' +
-          'the chat attachment or Word document. Audrey chunks and embeds ' +
-          'this; long docs (>100K chars) may be truncated by the extraction ' +
-          'pipeline.',
+          'The document text as Markdown: the full content as you can see it in ' +
+          'the chat attachment or Word document, with headings as # lines and ' +
+          'clause numbers written out as text (e.g. "12.3 Limitation of ' +
+          'liability") — Audrey splits passages on them and cites them. Long ' +
+          'docs (>100K chars) may be truncated by the extraction pipeline.',
       },
       doc_type: {
         type: 'string',
@@ -155,7 +164,50 @@ export async function handleUploadDocument(
     });
   }
 
-  // 2. Insert the document.
+  // 2. Ingestion shape (017). Text input: the text is the original.
+  const markdown = parsed.data.content.replace(/\r\n?/g, '\n');
+  const fileSha256 = createHash('sha256').update(markdown, 'utf8').digest('hex');
+
+  // Dedupe: same firm + matter + text = the existing document.
+  const { data: existing, error: dupErr } = await db
+    .from('documents')
+    .select('id, name')
+    .eq('firm_id', firmId)
+    .eq('matter_id', parsed.data.matter_id)
+    .eq('file_sha256', fileSha256)
+    .limit(1)
+    .maybeSingle();
+  if (dupErr) {
+    return text({ error: `Document lookup failed: ${dupErr.message}` });
+  }
+  if (existing) {
+    return text({
+      result: 'already_uploaded',
+      document_id: (existing as { id: string }).id,
+      matter_id: parsed.data.matter_id,
+      matter_name: (matter as { matter_name: string | null }).matter_name,
+      message:
+        `This exact text is already saved in ${(matter as { matter_name: string | null }).matter_name ?? 'the matter'} ` +
+        `as "${(existing as { name: string | null }).name ?? 'a document'}" — nothing new was added.`,
+    });
+  }
+
+  // Keep the original (the text) in the private bucket — best-effort: the
+  // Markdown column already holds it byte-for-byte, so a Storage hiccup
+  // must not lose the upload.
+  const storagePath = `${firmId}/${parsed.data.matter_id}/${fileSha256}.md`;
+  let storedPath: string | null = null;
+  try {
+    const { error: upErr } = await db.storage
+      .from('documents')
+      .upload(storagePath, Buffer.from(markdown, 'utf8'), { contentType: 'text/markdown', upsert: true });
+    if (upErr) console.warn('[audrey-upload] storing text original failed (kept in markdown):', upErr.message);
+    else storedPath = storagePath;
+  } catch (err) {
+    console.warn('[audrey-upload] storing text original threw (kept in markdown):', err instanceof Error ? err.message : String(err));
+  }
+
+  // 3. Insert the document.
   //
   // word_doc_id is NULL when the upload didn't come from a Word add-in
   // surface (chat attachment, config-ui drag-and-drop, etc.). The
@@ -168,7 +220,17 @@ export async function handleUploadDocument(
       firm_id: firmId,
       matter_id: parsed.data.matter_id,
       name: parsed.data.name,
-      content: parsed.data.content,
+      content: markdown, // transition: existing readers still read `content`
+      markdown,
+      conversion_method: 'text',
+      conversion_version: 1,
+      conversion_warnings: [],
+      ingest_status: 'converted',
+      file_sha256: fileSha256,
+      mime_type: 'text/markdown',
+      file_size: Buffer.byteLength(markdown, 'utf8'),
+      storage_path: storedPath,
+      content_snapshot: new Date().toISOString(),
       doc_type: parsed.data.doc_type ?? null,
       is_precedent: parsed.data.is_precedent ?? false,
       word_doc_id: parsed.data.word_doc_id ?? null,
@@ -188,7 +250,7 @@ export async function handleUploadDocument(
 
   const documentId = (inserted as { id: string }).id;
 
-  // 3. Queue extraction so positions get populated
+  // 4. Queue extraction so positions get populated
   let jobId: string | null = null;
   try {
     const { jobId: queuedJobId } = await queueExtractionJob({
