@@ -19,7 +19,7 @@
  */
 
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { chunkText } from './chunker.js';
+import { chunkMarkdown } from './markdownChunker.js';
 import { embedBatch, EMBEDDING_MODEL } from './embedder.js';
 import { extractPositions, EXTRACTION_MODEL, type ExtractionContext } from './extractor.js';
 import { positionsRepository } from '../repositories/positions.js';
@@ -94,9 +94,32 @@ export async function queueExtractionJob(args: {
  * JobResult per processed job. Called by:
  *   - The backfill script (drainQueue: true)
  *   - The admin extract_positions tool (single job)
- *   - A future scheduler / HTTP trigger
+ *   - The prompt-extraction timer (keepalive.ts, every 2 minutes)
  */
+
+// In-process run tracking, so the prompt-extraction timer (keepalive.ts)
+// never starts a drain while another one — its own previous tick, the daily
+// sweep, or an admin tool call — is still going. Claims are race-safe
+// anyway (status-guarded UPDATE); this just avoids pointless overlap.
+let activeRuns = 0;
+
+/** True while any runPendingJobs() call in this process is still draining. */
+export function isJobRunInProgress(): boolean {
+  return activeRuns > 0;
+}
+
 export async function runPendingJobs(opts?: {
+  maxJobs?: number;
+}): Promise<JobResult[]> {
+  activeRuns++;
+  try {
+    return await drainPendingJobs(opts);
+  } finally {
+    activeRuns--;
+  }
+}
+
+async function drainPendingJobs(opts?: {
   maxJobs?: number;
 }): Promise<JobResult[]> {
   const db = getServiceClient();
@@ -163,7 +186,7 @@ async function runOneJob(db: SupabaseClient, job: JobRow): Promise<JobResult> {
     // 1. Fetch the document
     const { data: doc, error: docErr } = await db
       .from('documents')
-      .select('id, name, content, matter_id, firm_id, doc_type, is_precedent')
+      .select('id, name, content, markdown, matter_id, client_id, firm_id, doc_type, is_precedent')
       .eq('id', job.document_id)
       .maybeSingle();
 
@@ -171,7 +194,9 @@ async function runOneJob(db: SupabaseClient, job: JobRow): Promise<JobResult> {
       return await markFailed(db, job.id, `document not found: ${docErr?.message ?? 'no row'}`);
     }
 
-    const content = (doc.content as string | null) ?? '';
+    // Ingestion I4/I5: `markdown` is the working text (converted once at
+    // upload, clause numbers as text). `content` is the pre-017 fallback.
+    const content = ((doc.markdown as string | null) ?? (doc.content as string | null)) ?? '';
     if (content.trim().length < 50) {
       // Too short to be meaningful — skip
       return await markCompleted(db, job.id, started, {
@@ -180,21 +205,28 @@ async function runOneJob(db: SupabaseClient, job: JobRow): Promise<JobResult> {
       }, 'skipped');
     }
 
-    // 2. Chunk
-    const chunks = chunkText(content);
+    // 2. Chunk on Markdown structure (headings / numbered clauses), each
+    //    chunk prefixed with its label, e.g. "[12.3 Limitation of liability]";
+    //    unstructured text falls back to the size-based chunker.
+    const chunks = chunkMarkdown(content);
 
     // 3. Embed (parallel-batched inside embedBatch)
     const embeddings = await embedBatch(chunks.map((c) => c.text));
 
     // 4. Write chunks to matter_memory (only those with successful embeddings)
     const matterIdForWrite = (doc.matter_id as string | null) ?? job.matter_id;
+    // Client-wide documents (017 client_id, no matter) are indexed too:
+    // matter_id NULL + scope 'client'; match_document_passages (018) finds
+    // them through documents.client_id for every matter of that client.
+    const clientWide = !matterIdForWrite && !!(doc.client_id as string | null);
+    const indexable = !!matterIdForWrite || clientWide;
     let chunksEmbedded = 0;
     // Re-run guard: a document re-extraction (model upgrades, prompt
     // tuning) must not duplicate its chunk rows. Positions supersede
     // cleanly (insertExtracted); chunks would double, so skip the
     // chunk write when any already exist for this document.
     let chunksAlreadyStored = false;
-    if (matterIdForWrite && chunks.length > 0) {
+    if (indexable && chunks.length > 0) {
       const { count } = await db
         .from('matter_memory')
         .select('id', { count: 'exact', head: true })
@@ -205,10 +237,11 @@ async function runOneJob(db: SupabaseClient, job: JobRow): Promise<JobResult> {
         console.log(`[audrey-jobs] chunks already stored for doc ${doc.id} (${count}) — skipping chunk write, re-extracting positions only`);
       }
     }
-    if (matterIdForWrite && chunks.length > 0 && !chunksAlreadyStored) {
+    if (indexable && chunks.length > 0 && !chunksAlreadyStored) {
       const writeResult = await matterMemoryRepository.insertChunks({
         firmId: doc.firm_id as string,
-        matterId: matterIdForWrite,
+        matterId: matterIdForWrite ?? null,
+        scope: clientWide ? 'client' : 'matter',
         sourceDocumentId: doc.id as string,
         chunks: chunks.map((c, i) => ({
           text: c.text,
@@ -259,7 +292,9 @@ interface DocumentRow {
   id: string;
   name: string | null;
   content: string | null;
+  markdown?: string | null;
   matter_id: string | null;
+  client_id?: string | null;
   firm_id: string | null;
   doc_type: string | null;
   is_precedent: boolean | null;

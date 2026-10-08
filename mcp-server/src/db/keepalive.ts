@@ -23,7 +23,7 @@
 import { getSupabase, isSupabaseConfigured } from './supabase.js';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { embedBatch, EMBEDDING_MODEL } from '../extraction/embedder.js';
-import { queueExtractionJob, runPendingJobs } from '../extraction/jobRunner.js';
+import { queueExtractionJob, runPendingJobs, isJobRunInProgress } from '../extraction/jobRunner.js';
 
 const INTERVAL_MS = 24 * 60 * 60 * 1000; // daily — 7x margin on the pause threshold
 
@@ -295,12 +295,49 @@ async function sweepExtractions(logger: MinimalLogger): Promise<void> {
   }
 }
 
+// ============================================================
+// Prompt extraction (ingestion I4)
+// ============================================================
+//
+// Uploads (legacy POST /api/ingest, the Context Capture library,
+// upload_document) queue an extraction_jobs row at once. This tick drains
+// them within ~2 minutes instead of waiting for the daily sweep, so
+// "extraction queued immediately" actually means passages and positions
+// within minutes. Same gate as the extraction sweep (ANTHROPIC_API_KEY),
+// no new env vars; skipped while any drain is already running in-process.
+
+const PROMPT_EXTRACTION_INTERVAL_MS = 2 * 60 * 1000;
+const PROMPT_EXTRACTION_MAX_JOBS = 5;
+
+async function drainPromptly(logger: MinimalLogger): Promise<void> {
+  try {
+    if (!process.env.ANTHROPIC_API_KEY) return; // degraded mode, as sweepExtractions
+    if (!getServiceClientForSweep()) return;
+    if (isJobRunInProgress()) return; // previous tick or the daily sweep still draining
+    const results = await runPendingJobs({ maxJobs: PROMPT_EXTRACTION_MAX_JOBS });
+    if (results.length === 0) return; // quiet when the queue is empty
+    let completed = 0;
+    let failed = 0;
+    for (const r of results) {
+      if (r.status === 'failed') failed++;
+      else completed++;
+    }
+    logger.info({ processed: results.length, completed, failed }, 'prompt extraction complete');
+  } catch (err) {
+    logger.warn(
+      { error: err instanceof Error ? err.message : String(err) },
+      'prompt extraction threw'
+    );
+  }
+}
+
 /**
  * Fire one ping at boot, then daily. The interval is unref'd so it
  * never holds the process open, and every failure path is swallowed
  * into a warn log — the keep-alive must never take the server down.
  * Each tick also runs the AUD-606 re-embed sweep and the Stage 2a
- * extraction retry sweep.
+ * extraction retry sweep. A separate 2-minute timer drains newly queued
+ * extraction jobs (prompt extraction, ingestion I4).
  */
 export function startDbKeepalive(logger: MinimalLogger): void {
   if (!isSupabaseConfigured()) return;
@@ -312,4 +349,8 @@ export function startDbKeepalive(logger: MinimalLogger): void {
   void tick();
   const timer = setInterval(() => void tick(), INTERVAL_MS);
   timer.unref();
+
+  // Prompt extraction: every 2 minutes, only when no run is in progress.
+  const promptTimer = setInterval(() => void drainPromptly(logger), PROMPT_EXTRACTION_INTERVAL_MS);
+  promptTimer.unref();
 }
