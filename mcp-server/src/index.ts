@@ -300,24 +300,6 @@ app.get('/health', async () => ({
   timestamp: new Date().toISOString(),
 }));
 
-// TEMPORARY — env-presence diagnostic. Remove after OAuth is verified.
-app.get('/_debug/env', async () => {
-  const probe = (name: string) => {
-    const v = process.env[name];
-    return v ? { set: true, length: v.length, startsWith: v.slice(0, 4) } : { set: false };
-  };
-  return {
-    SUPABASE_URL: probe('SUPABASE_URL'),
-    SUPABASE_ANON_KEY: probe('SUPABASE_ANON_KEY'),
-    SUPABASE_SERVICE_ROLE_KEY: probe('SUPABASE_SERVICE_ROLE_KEY'),
-    AUDREY_JWT_PRIVATE_KEY: probe('AUDREY_JWT_PRIVATE_KEY'),
-    AUDREY_STATE_SECRET: probe('AUDREY_STATE_SECRET'),
-    AUDREY_BASE_URL: probe('AUDREY_BASE_URL'),
-    NODE_ENV: process.env.NODE_ENV ?? '(unset)',
-    RAILWAY_PUBLIC_DOMAIN: process.env.RAILWAY_PUBLIC_DOMAIN ?? '(unset)',
-  };
-});
-
 app.get('/', async () => ({
   service: 'audrey-tcp-mcp',
   message: 'Audrey TCP MCP server. Connect via Claude with the audrey-tcp plugin installed.',
