@@ -5,14 +5,17 @@
  *   - Tool handlers NEVER import this directly. They go through the
  *     repository layer (src/repositories/*). This keeps the routing
  *     concern (shared vs dedicated instance, stub vs live) in one place.
- *   - We use the anon key from inside tool calls. RLS enforces firm
- *     isolation; the service role is reserved for migrations and runs
- *     out-of-band (psql, Supabase dashboard).
+ *   - We use the SERVER-ONLY key (SUPABASE_SERVICE_ROLE_KEY, sb_secret_…).
+ *     The publishable/anon key is public (it ships in the Word pane
+ *     bundle) and migration 019 locks every legacy table and match_* RPC
+ *     away from it, so reads through it return nothing. Firm isolation is
+ *     enforced in the repositories: every query filters on firm_id.
+ *     SUPABASE_ANON_KEY is a deprecated fallback that logs loudly.
  *   - `audrey.firm_id` GUC is set per request so the RLS policies on
  *     audit_log (and future tables) resolve to the correct firm.
  *
  * Fallback mode:
- *   - If SUPABASE_URL / SUPABASE_ANON_KEY are not set, getSupabase()
+ *   - If SUPABASE_URL and a key are not set, getSupabase()
  *     returns null. Repositories fall back to stub fixtures. This keeps
  *     the Day-1 stdio spike working without Supabase creds locally.
  */
@@ -29,15 +32,25 @@ export function getSupabase(): SupabaseClient | null {
   if (cached !== undefined) return cached;
 
   const url = process.env.SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const anonKey = process.env.SUPABASE_ANON_KEY;
+  const key = serviceKey || anonKey;
 
-  if (!url || !anonKey) {
+  if (!url || !key) {
     // Allowed in Stage A; tools fall back to stub fixtures.
     cached = null;
     return null;
   }
 
-  cached = createClient(url, anonKey, {
+  if (!serviceKey) {
+    console.error(
+      '[audrey-mcp] SUPABASE_SERVICE_ROLE_KEY not set — falling back to SUPABASE_ANON_KEY. ' +
+        'The publishable key cannot read matters/documents/matter_memory once migration 019 ' +
+        'is applied; tools will return empty results. Set SUPABASE_SERVICE_ROLE_KEY.'
+    );
+  }
+
+  cached = createClient(url, key, {
     auth: {
       // MCP server is stateless from Supabase's perspective; we don't
       // want it persisting any session.
@@ -57,7 +70,10 @@ export function getSupabase(): SupabaseClient | null {
  * "running in stub mode" warning at boot.
  */
 export function isSupabaseConfigured(): boolean {
-  return Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_ANON_KEY);
+  return Boolean(
+    process.env.SUPABASE_URL &&
+      (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY)
+  );
 }
 
 /**
