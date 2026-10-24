@@ -367,7 +367,16 @@ export function registerAuthorizeEndpoint(app: FastifyInstance): void {
   var params = new URLSearchParams(hash);
   var accessToken = params.get('access_token');
   if (!accessToken) {
-    document.body.innerHTML = '<p style="font-family: sans-serif; text-align: center; margin-top: 80px; color: #c00;">Sign-in failed: no access token.</p>';
+    // Supabase reports a rejected link in the fragment (error_code /
+    // error_description) or, for code-flow links, returns ?code= instead.
+    var q = new URLSearchParams(window.location.search);
+    var reason = params.get('error_description') || params.get('error_code') || params.get('error')
+      || (q.get('code') ? 'link used the code flow, which this page does not handle' : 'Supabase returned no token and no error');
+    var p = document.createElement('p');
+    p.style.cssText = 'font-family: sans-serif; text-align: center; margin-top: 80px; color: #c00;';
+    p.textContent = 'Sign-in failed: ' + reason + '. Please request a new link from Claude and use it straight away.';
+    document.body.innerHTML = '';
+    document.body.appendChild(p);
     return;
   }
   // POST the access_token to the exchange endpoint
