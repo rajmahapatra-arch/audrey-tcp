@@ -216,7 +216,7 @@ await mcp.connect(transport);
 
 if (!isSupabaseConfigured()) {
   log(
-    'SUPABASE_URL / SUPABASE_ANON_KEY not set — running in STUB mode. ' +
+    'SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY not set — running in STUB mode. ' +
       'Tools will return hardcoded fixtures.'
   );
 } else {

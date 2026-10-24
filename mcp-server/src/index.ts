@@ -551,7 +551,7 @@ try {
   logger.info(`Audrey MCP server listening on :${PORT}`);
   if (!isSupabaseConfigured()) {
     logger.warn(
-      'SUPABASE_URL / SUPABASE_ANON_KEY not set — running in STUB mode. ' +
+      'SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY not set — running in STUB mode. ' +
         'Repositories will return hardcoded fixtures. Set env vars in .env to read real data.'
     );
   } else {
