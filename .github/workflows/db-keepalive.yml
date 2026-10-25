@@ -22,15 +22,27 @@ jobs:
   ping:
     runs-on: ubuntu-latest
     steps:
-      - name: Ping production API (touches Supabase)
+      - name: Query Supabase directly (proves the database is up)
+        # The publishable key is public by design (it ships in the Word pane)
+        # and, since migration 019, reads no rows. PostgREST still has to
+        # run the query against Postgres, so a 200 means the database is
+        # awake; a paused project answers 5xx/540.
+        env:
+          SUPABASE_URL: https://fjshrfjahpmtlcntqfnq.supabase.co
+          SUPABASE_PUBLISHABLE_KEY: sb_publishable_lVo9d5uw8ybNWx_37Xapyw_RHHbbSUa
         run: |
-          set -e
-          CLIENTS=$(curl -sf -m 30 https://api.audrey.xeqtor.com/api/clients)
-          COUNT=$(echo "$CLIENTS" | python3 -c "import json,sys; print(len(json.load(sys.stdin)))")
-          echo "clients visible: $COUNT"
-          # Empty result = DB unreachable/paused (the backend returns [] on error)
-          if [ "$COUNT" -eq 0 ]; then
-            echo "::error::Production API returned 0 clients — database may be paused or unreachable"
+          CODE=$(curl -s -o /dev/null -w '%{http_code}' -m 30 -H "apikey: $SUPABASE_PUBLISHABLE_KEY" "$SUPABASE_URL/rest/v1/positions?select=id&limit=1")
+          echo "Supabase REST answered HTTP $CODE"
+          if [ "$CODE" != "200" ]; then
+            echo "::error::Supabase answered HTTP $CODE — database may be paused or unreachable"
+            exit 1
+          fi
+      - name: Backend enforces sign-in (data route must answer 401)
+        run: |
+          CODE=$(curl -s -o /dev/null -w '%{http_code}' -m 30 https://api.audrey.xeqtor.com/api/clients)
+          echo "backend /api/clients without sign-in: HTTP $CODE"
+          if [ "$CODE" != "401" ]; then
+            echo "::error::Backend answered $CODE without sign-in (expected 401) — check REQUIRE_AUTH and that the service is up"
             exit 1
           fi
       - name: Ping TCP server health
