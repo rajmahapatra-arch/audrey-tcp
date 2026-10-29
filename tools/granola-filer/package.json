@@ -1,0 +1,22 @@
+{
+  "name": "granola-filer",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Files new Granola meeting notes as .txt files into the right client/matter folder (personal Windows tool).",
+  "type": "module",
+  "bin": {
+    "granola-filer": "src/cli.js"
+  },
+  "scripts": {
+    "test": "node --test \"test/*.test.js\"",
+    "connect": "node src/cli.js connect",
+    "dry-run": "node src/cli.js dry-run",
+    "run-once": "node src/cli.js run"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2"
+  }
+}
