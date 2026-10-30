@@ -58,6 +58,11 @@ export const DEFAULT_CONFIG = {
   folderMap: {},
   // Extra ways a client may be named in meeting titles, e.g. { "Some Client Ltd": ["SCL"] }.
   clientAliases: {},
+  // Names a matter goes by in meeting titles, e.g. { "Client\\Matter": ["Project codename"] }.
+  matterAliases: {},
+  // Several client roots, e.g. [{ "path": "...\\_XEQtor\\Client", "label": "XEQtor" }]. When
+  // set, it replaces clientRoot.
+  clientRoots: [],
   // Extra matter/client names too generic to trust in a title on their own.
   genericNames: [],
   // Granola MCP endpoint.

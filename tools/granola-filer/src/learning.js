@@ -6,7 +6,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { locate } from './folders.js';
+import { locate, clientRoots } from './folders.js';
 import { readMeetingId } from './format.js';
 
 /** domain -> { clients: {client: n}, matters: {client: {matter: n}} } */
@@ -58,7 +58,7 @@ export function buildFileIndex(roots, { maxDepth = 8 } = {}) {
  */
 export function detectMoves(state, config, { index, now = new Date() } = {}) {
   let idx = index;
-  const getIndex = () => (idx ||= buildFileIndex([config.clientRoot, config.inbox]));
+  const getIndex = () => (idx ||= buildFileIndex([...clientRoots(config).map((r) => r.path), config.inbox]));
   const result = { checked: 0, moved: 0, missing: 0, toFiled: 0, toInbox: 0 };
   for (const [id, rec] of Object.entries(state.meetings || {})) {
     if (!rec.path || !rec.fileName) continue;

@@ -162,6 +162,12 @@ export function ruleTitle(title, folders, config, knownClient = null) {
   const scopeClient = knownClient || (clientSet.length === 1 ? clientSet[0] : null);
 
   let matterHits = [];
+  // config.matterAliases: { "Client\\Matter": ["Yasref", ...] } — names a matter goes by in titles.
+  for (const [target, aliases] of Object.entries(config.matterAliases || {})) {
+    const r = resolveMapped(target, folders);
+    if (!r || (scopeClient && r.client !== scopeClient)) continue;
+    if ((aliases || []).some((a) => containsWords(title, a))) matterHits.push(r);
+  }
   for (const c of folders) {
     if (scopeClient && c.name !== scopeClient) continue;
     for (const m of c.matters) {

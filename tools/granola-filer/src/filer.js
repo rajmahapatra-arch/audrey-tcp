@@ -3,7 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { files, log } from './config.js';
-import { scanFolders, meetingsDir } from './folders.js';
+import { scanFolders, meetingsDir, clientRoots } from './folders.js';
 import { decide, signalDomains } from './rules.js';
 import { baseFileName, uniqueFileName, renderMeeting, BOM, ymdLocal } from './format.js';
 import { buildDomainMap, detectMoves } from './learning.js';
@@ -62,8 +62,11 @@ function acquireLock() {
 const releaseLock = () => { try { fs.unlinkSync(files.lock()); } catch { /* ignore */ } };
 
 function relToRoot(config, p) {
-  const rel = path.relative(config.clientRoot, p);
-  return rel.startsWith('..') ? p : rel;
+  for (const root of clientRoots(config)) {
+    const rel = path.relative(root.path, p);
+    if (!rel.startsWith('..') && !path.isAbsolute(rel)) return path.join(root.label, rel);
+  }
+  return p;
 }
 
 function appendFilingLog(config, line) {
@@ -126,6 +129,17 @@ export async function runFiler(config, { dryRun = true, refile, toast = false, n
     const fullName = granolaFolderPaths(gfolders);
     const folderOf = new Map();
     for (const m of listed) folderOf.set(m.id, new Set((m.granolaFolders || []).map((n) => fullName.get(n) || n)));
+    // Granola's meeting list doesn't say which folder a meeting is in, so ask each folder
+    // for its meetings (one paged call per folder, same date window).
+    for (const gf of gfolders) {
+      if (!gf.id) continue;
+      const inFolder = await api.listMeetings({ from, to: now, folderId: gf.id });
+      const label = fullName.get(gf.name) || gf.name;
+      for (const m of inFolder) {
+        if (!folderOf.has(m.id)) folderOf.set(m.id, new Set());
+        folderOf.get(m.id).add(label);
+      }
+    }
 
     let candidates = listed.filter((m) => !m.start || m.start >= from);
     counts.listed = candidates.length;
