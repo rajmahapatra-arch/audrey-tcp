@@ -419,4 +419,69 @@ export const mattersRepository = {
 
     return (data ?? []).map((row) => toMatter(row as unknown as MatterRow));
   },
+
+  /** All of a client's matters (any stage, archived included) — for duplicate checks. */
+  async listForClient(firmId: string, clientId: string): Promise<Matter[]> {
+    if (!isSupabaseConfigured()) return [];
+    const supabase = getSupabase();
+    if (!supabase) return [];
+
+    const { data, error } = await supabase
+      .from('matters')
+      .select(SELECT_COLS)
+      .eq('firm_id', firmId)
+      .eq('client_id', clientId)
+      .limit(500);
+    if (error) throw new Error(`Failed to list client matters: ${error.message}`);
+    return (data ?? []).map((row) => toMatter(row as unknown as MatterRow));
+  },
+
+  /**
+   * Create a matter in the shape the Word pane's own createMatter writes
+   * (client_name + client_id, parties jsonb, deal_parameters, context),
+   * so it appears in the pane's matter list immediately.
+   */
+  async create(
+    firmId: string,
+    input: {
+      clientId: string;
+      clientName: string;
+      matterName: string;
+      counterparties: string[];
+      stage: MatterStage | null;
+      governingLaw: string | null;
+      matterType: string | null;
+      userId: string | null;
+    }
+  ): Promise<Matter> {
+    const supabase = getSupabase();
+    if (!isSupabaseConfigured() || !supabase) {
+      throw new Error('Audrey database is not configured');
+    }
+
+    const { data, error } = await supabase
+      .from('matters')
+      .insert({
+        firm_id: firmId,
+        user_id: input.userId,
+        client_id: input.clientId,
+        client_name: input.clientName,
+        matter_name: input.matterName,
+        governing_law: input.governingLaw,
+        parties: input.counterparties.map((name) => ({
+          name,
+          kind: 'counterparty',
+          role: 'counterparty',
+        })),
+        deal_parameters: input.matterType ? { matter_type: input.matterType } : {},
+        context: {},
+        stage: input.stage,
+        archived: false,
+        last_accessed: new Date().toISOString(),
+      })
+      .select(SELECT_COLS)
+      .single();
+    if (error || !data) throw new Error(`Failed to create matter: ${error?.message ?? 'unknown'}`);
+    return toMatter(data as unknown as MatterRow);
+  },
 };

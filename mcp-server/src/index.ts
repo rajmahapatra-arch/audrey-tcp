@@ -77,6 +77,12 @@ import {
   addMatterNoteTool,
   handleAddMatterNote,
 } from './tools/addMatterNote.js';
+import {
+  createClientTool,
+  handleCreateClient,
+  createMatterTool,
+  handleCreateMatter,
+} from './tools/createMatter.js';
 import { isSupabaseConfigured } from './db/supabase.js';
 import { startDbKeepalive } from './db/keepalive.js';
 import { auditAsync } from './audit.js';
@@ -144,6 +150,8 @@ function createMcpServer(): McpServer {
       documentHandoffTool,
       tightenEditsTool,
       addMatterNoteTool,
+      createClientTool,
+      createMatterTool,
     ],
   }));
 
@@ -221,6 +229,12 @@ function createMcpServer(): McpServer {
           break;
         case 'add_matter_note':
           result = await handleAddMatterNote(args, firmId);
+          break;
+        case 'create_client':
+          result = await handleCreateClient(args, firmId);
+          break;
+        case 'create_matter':
+          result = await handleCreateMatter(args, firmId, userId);
           break;
         default:
           auditAsync({
