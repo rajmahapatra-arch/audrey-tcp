@@ -65,6 +65,12 @@ import {
   addMatterNoteTool,
   handleAddMatterNote,
 } from './tools/addMatterNote.js';
+import {
+  createClientTool,
+  handleCreateClient,
+  createMatterTool,
+  handleCreateMatter,
+} from './tools/createMatter.js';
 import { isSupabaseConfigured } from './db/supabase.js';
 import { auditAsync } from './audit.js';
 import { resolveFirmId } from './auth.js';
@@ -107,6 +113,8 @@ mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
     documentHandoffTool,
     tightenEditsTool,
     addMatterNoteTool,
+    createClientTool,
+    createMatterTool,
   ],
 }));
 
@@ -171,6 +179,12 @@ mcp.setRequestHandler(CallToolRequestSchema, async (request) => {
         break;
       case 'add_matter_note':
         result = await handleAddMatterNote(args, firmId);
+        break;
+      case 'create_client':
+        result = await handleCreateClient(args, firmId);
+        break;
+      case 'create_matter':
+        result = await handleCreateMatter(args, firmId, userId);
         break;
       default:
         auditAsync({
